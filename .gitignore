@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+data/*
+!data/.gitkeep
+models/
+outputs/
+checkpoints/
+wandb/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.log
+
+# Large datasets and binary assets are kept outside the source repository.
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+*.tar
+*.tar.gz
+*.zip
+*.7z
+*.onnx
