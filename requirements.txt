@@ -4,5 +4,6 @@ accelerate
 datasets
 peft
 pillow
+numpy
 qwen-vl-utils
 pytest
