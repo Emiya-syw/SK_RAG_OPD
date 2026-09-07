@@ -53,8 +53,29 @@ class OPDTrainer(Trainer):
             eos_token_id=processor.tokenizer.eos_token_id,
             use_cache=True,
         )
-        if self.loss_type not in {"jsd", "sampled_pg"}:
-            raise ValueError("--loss_type must be 'jsd' or 'sampled_pg'")
+        if self.loss_type not in {"reverse_kl", "jsd", "sampled_pg"}:
+            raise ValueError("--loss_type must be 'reverse_kl', 'jsd', or 'sampled_pg'")
+
+    @staticmethod
+    def token_level_reverse_kl_loss(
+        student_logits: torch.Tensor,
+        teacher_logits: torch.Tensor,
+        labels: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> torch.Tensor:
+        """Standard full-vocabulary token-level OPD reverse-KL objective.
+
+        Rollout prefixes are sampled from the current student. At every valid
+        completion position, minimize KL(p_student || p_teacher).
+        """
+        student_log_probs = F.log_softmax(student_logits / temperature, dim=-1)
+        teacher_log_probs = F.log_softmax(teacher_logits / temperature, dim=-1)
+        student_probs = student_log_probs.exp()
+        token_loss = (student_probs * (student_log_probs - teacher_log_probs)).sum(dim=-1)
+        mask = labels != -100
+        if not mask.any():
+            return student_logits.sum() * 0.0
+        return token_loss[mask].mean() * (temperature ** 2)
 
     @staticmethod
     def generalized_jsd_loss(
@@ -264,7 +285,14 @@ class OPDTrainer(Trainer):
             teacher_outputs = teacher_model(**self._model_forward_kwargs(inputs, "teacher"))
             teacher_logits = teacher_outputs.logits[:, teacher_prompt_len - 1 : -1, :]
 
-        if self.loss_type == "jsd":
+        if self.loss_type == "reverse_kl":
+            loss = self.token_level_reverse_kl_loss(
+                student_logits=student_logits,
+                teacher_logits=teacher_logits,
+                labels=shifted_labels,
+                temperature=self.generation_config.temperature,
+            )
+        elif self.loss_type == "jsd":
             loss = self.generalized_jsd_loss(
                 student_logits=student_logits,
                 teacher_logits=teacher_logits,

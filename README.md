@@ -4,8 +4,9 @@
 
 ## 算法
 
-OPD 有两种 loss：
+OPD 有三种 loss：
 
+- `reverse_kl`：标准 full-vocabulary token-level OPD，在 student 的 on-policy rollout 上计算 `KL(student || teacher)`。
 - `jsd`：teacher 与 student 的 generalized JSD，支持 `--top_k_loss` 降低大词表显存。
 - `sampled_pg`：只计算采样 token 的 log-prob advantage，适合显存有限的训练。
 
@@ -50,7 +51,7 @@ python train_opd.py \
   --per_device_train_batch_size 1 \
   --gradient_accumulation_steps 8 \
   --gradient_checkpointing true \
-  --loss_type sampled_pg --max_new_tokens 64
+  --loss_type reverse_kl --max_new_tokens 64
 ```
 
 多卡使用 `accelerate launch`：
