@@ -37,7 +37,7 @@ cd /home/sunyw/SK_RAG_OPD
 STAGE=validate bash rag_eval/run_rag_eval.sh
 ```
 
-Run a small precomputed-retrieval smoke test on two datasets:
+Run a small smoke test on two datasets:
 
 ```bash
 cd /home/sunyw/SK_RAG_OPD
@@ -47,18 +47,7 @@ ADAPTER_PATH=/path/to/opd/output \
 DATASETS="SIUO-Gen VLGuard" \
 LIMIT=5 \
 OUTPUT_DIR=rag_eval/results/smoke \
- bash rag_eval/run_precomputed_qa.sh
-
-For a full run with the script's fixed defaults, simply execute:
-
-```bash
-cd /home/sunyw/SK_RAG_OPD
-bash rag_eval/run_precomputed_qa.sh
-```
-
-It evaluates all datasets with the base model unless a checkpoint exists under
-`outputs/controlled` or `outputs/consistent`; the newest such adapter is then
-selected automatically.
+ bash rag_eval/run_rag_eval.sh
 ```
 
 Run all test samples after the smoke test:
@@ -68,18 +57,18 @@ CUDA_VISIBLE_DEVICES=0 \
 PYTHON_BIN=/path/to/conda/env/bin/python \
 ADAPTER_PATH=/path/to/opd/output \
 OUTPUT_DIR=rag_eval/results/opd_all \
- bash rag_eval/run_precomputed_qa.sh
+ bash rag_eval/run_rag_eval.sh
 ```
 
 Leave `ADAPTER_PATH` empty to evaluate the base model. Embeddings are cached in
 `rag_eval/cache`, so subsequent runs with the same data and embedding settings do
 not recompute them. Set `REBUILD_CACHE=true` to force rebuilding.
 
-`run_precomputed_qa.sh` is the recommended one-click command: it uses only the
-already generated `test_qwen3vl_embedding_top3.jsonl` files and never loads the
-embedding model. The lower-level `run_rag_eval.sh` has the same default
-(`STAGE=generate`); use `STAGE=retrieve` or `STAGE=all` only when you explicitly
-want to recompute retrieval.
+`run_rag_eval.sh` is the supported entry point. With `STAGE=generate` (the
+default), it uses the already generated `test_qwen3vl_embedding_top3.jsonl`
+files when available and does not load the embedding model. Use
+`STAGE=retrieve` or `STAGE=all` only when you explicitly want to recompute
+retrieval.
 
 QA generation supports batching. The default is `1` for broad GPU compatibility;
 set `GENERATION_BATCH_SIZE=2` or `4` in `run_rag_eval.sh` when the model and
