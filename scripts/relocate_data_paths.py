@@ -13,6 +13,8 @@ REPLACEMENTS = {
     "/home/sunyw/SK_RAG/data/BeaverTails-V/opsd_images/response_recommendation_stratified3000_seed42/retrieved/": str(ROOT / "data/consistent_retrieved") + "/",
     "/home/sunyw/SK_RAG/data/BeaverTails-V/opsd_images/response_recommendation_controlled_3k/current/": str(ROOT / "data/controlled_current") + "/",
     "/home/sunyw/SK_RAG/data/BeaverTails-V/opsd_images/response_recommendation_controlled_3k/retrieved/": str(ROOT / "data/controlled_retrieved") + "/",
+    "/home/sunyw/SK_RAG/data/BeaverTails-V/opsd_images/response_recommendation_embedding_3k/current/": str(ROOT / "data/embedding_current") + "/",
+    "/home/sunyw/SK_RAG/data/BeaverTails-V/opsd_images/response_recommendation_embedding_3k/retrieved/": str(ROOT / "data/embedding_retrieved") + "/",
 }
 
 

@@ -108,3 +108,8 @@ VLGuard (keyword ASR) and SIUO-MCQA (option parser). Set
 `HARMFUL_REQUEST_EVAL=true` to use the six-category harmful-request prompt.
 Judgments resume from valid existing rows and use `JUDGE_WORKERS` concurrent
 requests.
+
+The reported benchmark metrics are: ASR for BeaverTails-V, FigStep,
+MM-SafetyBench, and SIUO-Gen; VLGuard reports ASR on unsafe samples and FRR
+(false refusal rate) on safe samples; MSSBench reports ASR and FRR separately
+for `chat` and `embodied`; SIUO-MCQA reports option accuracy.
