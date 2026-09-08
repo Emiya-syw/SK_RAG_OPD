@@ -13,7 +13,7 @@ class OPDTrainer(Trainer):
     """On-policy distillation trainer for Qwen-VL.
 
     The student generates from normal multimodal inputs. The teacher receives a
-    privileged prompt with safety knowledge/reference answer. Loss is computed
+    privileged prompt with demonstration/reference answer. Loss is computed
     on the same generated tokens.
     """
 
@@ -25,6 +25,7 @@ class OPDTrainer(Trainer):
         temperature: float = 1.0,
         top_p: float = 0.95,
         top_k: int = 20,
+        repetition_penalty: float = 1.05,
         fixed_teacher: bool = True,
         advantage_clip: float = 5.0,
         loss_type: str = "jsd",
@@ -49,6 +50,7 @@ class OPDTrainer(Trainer):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            repetition_penalty=repetition_penalty,
             pad_token_id=processor.tokenizer.pad_token_id,
             eos_token_id=processor.tokenizer.eos_token_id,
             use_cache=True,

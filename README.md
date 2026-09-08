@@ -1,6 +1,6 @@
 # SK-RAG-OPD
 
-基于检索增强视觉语言模型的 On-Policy Distillation（OPD）训练实现。项目从 `SK_RAG` 中整理出可复用的核心算法：student 先根据普通检索上下文采样回答，teacher 再使用 privileged knowledge / demonstration 对同一段采样 token 打分，最后只在 on-policy completion 上进行分布匹配。
+基于检索增强视觉语言模型的 On-Policy Distillation（OPD）训练实现。项目从 `SK_RAG` 中整理出可复用的核心算法：student 先根据普通检索上下文采样回答，teacher 再使用 demonstration / reference answer 对同一段采样 token 打分，最后只在 on-policy completion 上进行分布匹配。
 
 ## 算法
 
@@ -26,10 +26,10 @@ GPU 训练需要与 CUDA 匹配的 PyTorch；如果使用 Qwen-VL，建议安装
 
 ## 数据格式
 
-每行一个 JSON 对象，最少需要 `image_path`、`question` 和 `reference_answer`。可选字段包括 `retrieved_examples`、`safety_knowledge`、`teacher_demonstration`。检索样本可以是：
+每行一个 JSON 对象，最少需要 `image_path`、`question` 和 `reference_answer`。可选字段包括 `retrieved_examples` 和 `teacher_demonstration`。检索样本可以是：
 
 ```json
-{"image_path":"images/001.jpg","question":"...","reference_answer":"...","safety_knowledge":"...","retrieved_examples":[{"image_path":"images/002.jpg","question":"...","answer":"...","score":0.91}]}
+{"image_path":"images/001.jpg","question":"...","reference_answer":"...","teacher_demonstration":"...","retrieved_examples":[{"image_path":"images/002.jpg","question":"...","answer":"...","score":0.91}]}
 ```
 
 已有 SK-RAG / BeaverTails / VLGuard JSONL 可先执行：
@@ -88,9 +88,11 @@ CONSISTENT_INIT_PATH=/path/to/consistent \
 teacher `/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-8B-Thinking`，以及
 `/opt/conda/envs/sk_rag_opd/bin/python`。默认训练配置为两张 GPU
 (`CUDA_VISIBLE_DEVICES=0,1`)、每卡 batch size 4、prompt 长度 4096、最大
-rollout 长度 8192；可通过
-`NUM_PROCESSES`、`CUDA_VISIBLE_DEVICES`、`BATCH_SIZE` 和
-`MAX_PROMPT_LENGTH` 和 `MAX_NEW_TOKENS` 覆盖。
+rollout 长度 2048；可通过
+`NUM_PROCESSES`、`CUDA_VISIBLE_DEVICES`、`BATCH_SIZE`、
+`MAX_PROMPT_LENGTH`、`MAX_NEW_TOKENS` 和 `REPETITION_PENALTY` 覆盖。
+student 的默认 `REPETITION_PENALTY=1.05` 只影响 on-policy 生成，不会改变
+OPD loss 公式或 teacher 的 forward 评分。
 
 ## 验证
 

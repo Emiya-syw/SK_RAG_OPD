@@ -3,10 +3,17 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-consistent_file="${1:-data/category_consistent.jsonl}"
-controlled_file="${2:-data/category_controlled.jsonl}"
-consistent_output="${3:-outputs/consistent}"
-controlled_output="${4:-outputs/controlled_after_consistent}"
+# Edit this block for a repeat run. Command-line arguments, when provided,
+# temporarily override these values without changing the script.
+consistent_file="data/category_consistent.jsonl"
+controlled_file="data/category_controlled.jsonl"
+consistent_output="outputs/consistent"
+controlled_output="outputs/controlled_after_consistent"
+
+consistent_file="${1:-${consistent_file}}"
+controlled_file="${2:-${controlled_file}}"
+consistent_output="${3:-${consistent_output}}"
+controlled_output="${4:-${controlled_output}}"
 
 echo "[1/2] Training on category-consistent data"
 if [[ -n "${CONSISTENT_INIT_PATH:-}" ]]; then

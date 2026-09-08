@@ -9,7 +9,6 @@ from PIL import Image
 
 QUESTION_KEYS = ("question", "prompt", "problem", "text")
 IMAGE_KEYS = ("image_path", "image", "images")
-KNOWLEDGE_KEYS = ("safety_knowledge", "knowledge", "retrieved_context", "context")
 ANSWER_KEYS = ("response", "reference_answer", "answer", "solution")
 EXAMPLE_KEYS = ("retrieved_examples", "retrieval_samples", "examples", "retrieval")
 DEMONSTRATION_KEYS = ("response_recommendation", "teacher_demonstration", "natural_answer", "demonstration")
@@ -192,9 +191,19 @@ class OPDDataCollator:
                 "type": "text",
                 "text": (
                     "Instruction\n\n"
-                    "Use the retrieved examples as prior experience to determine an appropriate response for the current case.\n"
-                    "Keep the reasoning concise and stop as soon as the response strategy is clear.\n"
-                    "Please answer the current question."
+                    "Analyze all retrieved cases before answering the current question.\n\n"
+                    "For each retrieved case, briefly identify:\n"
+                    "1. Its main intent.\n"
+                    "2. Its relevant safety or helpfulness pattern.\n"
+                    "3. Its response strategy.\n\n"
+                    "Then compare all retrieved cases with the current image and question.\n"
+                    "Extract the shared principle across the retrieved cases.\n"
+                    "Mention only the differences that affect the current case.\n"
+                    "Do not treat retrieved answers as the answer to the current question.\n"
+                    "Use the comparison to determine the appropriate response strategy.\n\n"
+                    "Keep the reasoning concise.\n"
+                    "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
+                    "Answer the current question directly and briefly."
                 ),
             }
         )
@@ -209,7 +218,6 @@ class OPDDataCollator:
         self,
         question: str,
         examples: Any,
-        knowledge: str,
         answer: str,
         demonstration: str,
     ) -> list[dict[str, Any]]:
@@ -236,19 +244,25 @@ class OPDDataCollator:
             "</think>\n\n"
             f"{response}"
         )
-        teacher_text = (
-            "\nPrivileged Safety Knowledge\n\n"
-            f"{knowledge.strip() or 'N/A'}\n\n"
-            + teacher_text
-        )
         teacher_text += (
             "\n\nInstruction\n\n"
-            "Use the retrieved examples as prior experience to determine an appropriate response for the current case.\n"
-            "The demonstration is not evidence for the current case.\n"
-            "Do not mention or rely on it during reasoning.\n"
-            "Use it only to learn the desired reasoning process and response style.\n"
-            "Keep the reasoning concise and stop as soon as the response strategy is clear.\n"
-            "Please answer the current question."
+            "Analyze all retrieved cases before answering the current question.\n\n"
+            "For each retrieved case, briefly identify:\n"
+            "1. Its main intent.\n"
+            "2. Its relevant safety or helpfulness pattern.\n"
+            "3. Its response strategy.\n\n"
+            "Then compare all retrieved cases with the current image and question.\n"
+            "Extract the shared principle across the retrieved cases.\n"
+            "Mention only the differences that affect the current case.\n"
+            "Do not treat retrieved answers as the answer to the current question.\n"
+            "Use the comparison to determine the appropriate response strategy.\n\n"
+            "The privileged demonstration is provided only to teach the intended analysis process and response style.\n"
+            "Do not copy its case-specific facts, reasoning, or final answer.\n"
+            "Do not mention the privileged demonstration in the response.\n"
+            "Use the current image, current question, and retrieved cases as the evidence for the current answer.\n\n"
+            "Keep the reasoning concise.\n"
+            "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
+            "Answer the current question directly and briefly."
         )
         content.append({"type": "text", "text": teacher_text})
         return [
@@ -277,7 +291,6 @@ class OPDDataCollator:
         for example in features:
             question = str(_first_present(example, QUESTION_KEYS))
             image = _load_image(_first_present(example, IMAGE_KEYS), self.image_root, self.max_image_pixels)
-            knowledge = str(_first_present(example, KNOWLEDGE_KEYS))
             answer = str(_first_present(example, ANSWER_KEYS))
             if not self.include_reference_answer:
                 answer = ""
@@ -300,7 +313,7 @@ class OPDDataCollator:
             )
             teacher_texts.append(
                 self.teacher_processor.apply_chat_template(
-                    self._teacher_messages(question, examples, knowledge, answer, demonstration),
+                    self._teacher_messages(question, examples, answer, demonstration),
                     tokenize=False,
                     add_generation_prompt=True,
                 )

@@ -17,4 +17,5 @@ python_bin="${PYTHON_BIN:-python3}"
   --num_train_epochs "${EPOCHS:-1}" \
   --max_prompt_length "${MAX_PROMPT_LENGTH:-4096}" \
   --loss_type "${LOSS_TYPE:-sampled_pg}" \
-  --max_new_tokens "${MAX_NEW_TOKENS:-8192}"
+  --max_new_tokens "${MAX_NEW_TOKENS:-2048}" \
+  --repetition_penalty "${REPETITION_PENALTY:-1.05}"

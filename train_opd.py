@@ -50,6 +50,7 @@ class OPDArguments:
     generation_temperature: float = 1.0
     generation_top_p: float = 0.95
     generation_top_k: int = 20
+    repetition_penalty: float = 1.05
     fixed_teacher: bool = True
     loss_type: str = "jsd"
     beta: float = 0.5
@@ -138,6 +139,7 @@ def main() -> None:
         teacher_model=teacher_model,
         max_new_tokens=opd_args.max_new_tokens, temperature=opd_args.generation_temperature,
         top_p=opd_args.generation_top_p, top_k=opd_args.generation_top_k,
+        repetition_penalty=opd_args.repetition_penalty,
         fixed_teacher=opd_args.fixed_teacher, loss_type=opd_args.loss_type,
         beta=opd_args.beta, top_k_loss=opd_args.top_k_loss,
         jsd_token_clip=opd_args.jsd_token_clip, advantage_clip=opd_args.advantage_clip)

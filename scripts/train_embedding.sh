@@ -41,11 +41,12 @@ fi
   --save_total_limit 2 \
   --max_prompt_length "${MAX_PROMPT_LENGTH:-4096}" \
   --max_image_pixels "${MAX_IMAGE_PIXELS:-262144}" \
-  --include_reference_answer false \
-  --max_new_tokens "${MAX_NEW_TOKENS:-8192}" \
+  --include_reference_answer true \
+  --max_new_tokens "${MAX_NEW_TOKENS:-2048}" \
   --generation_temperature 1.0 \
   --generation_top_p 0.95 \
   --generation_top_k 20 \
+  --repetition_penalty "${REPETITION_PENALTY:-1.05}" \
   --loss_type "${LOSS_TYPE:-jsd}" \
   --beta 0.5 \
   --top_k_loss "${TOP_K_LOSS:-128}" \
