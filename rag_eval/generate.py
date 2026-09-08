@@ -128,22 +128,32 @@ def generate_dataset(
     max_image_pixels: int,
     resume: bool,
     progress_every: int,
+    batch_size: int = 1,
 ) -> None:
     import torch
 
+    if batch_size < 1:
+        raise ValueError("generation batch_size must be >= 1")
     rows = read_jsonl(retrieval_path)
     done = _completed_ids(output_path) if resume else set()
     pending = [row for row in rows if str(row["id"]) not in done]
     if output_path.exists() and not resume:
         output_path.unlink()
-    for index, row in enumerate(pending, start=1):
-        images = _open_all_images(row, max_image_pixels)
+    for start in range(0, len(pending), batch_size):
+        batch_rows = pending[start : start + batch_size]
+        batch_images = [_open_all_images(row, max_image_pixels) for row in batch_rows]
         try:
-            text = processor.apply_chat_template(
-                build_rag_messages(row), tokenize=False, add_generation_prompt=True
-            )
+            texts = [
+                processor.apply_chat_template(
+                    build_rag_messages(row), tokenize=False, add_generation_prompt=True
+                )
+                for row in batch_rows
+            ]
             inputs = processor(
-                text=[text], images=images or None, padding=True, return_tensors="pt"
+                text=texts,
+                images=batch_images if any(batch_images) else None,
+                padding=True,
+                return_tensors="pt",
             )
             device = next(model.parameters()).device
             inputs = {key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()}
@@ -155,21 +165,31 @@ def generate_dataset(
                     use_cache=True,
                 )
             prompt_length = inputs["input_ids"].shape[1]
-            raw = processor.batch_decode(
-                generated[:, prompt_length:], skip_special_tokens=True
-            )[0].strip()
+            raw_predictions = [
+                value.strip()
+                for value in processor.batch_decode(
+                    generated[:, prompt_length:], skip_special_tokens=True
+                )
+            ]
         finally:
-            for image in images:
-                image.close()
-        result = {
-            **row,
-            "mode": "rag",
-            "base_model": str(base_model),
-            "adapter": str(adapter) if adapter is not None else None,
-            "raw_prediction": raw,
-            "prediction": visible_answer(raw),
-        }
-        write_jsonl(output_path, [result], mode="a")
-        if index % progress_every == 0 or index == len(pending):
-            print(f"  generated {index}/{len(pending)} pending rows", flush=True)
+            for images in batch_images:
+                for image in images:
+                    image.close()
+        results = []
+        for row, raw in zip(batch_rows, raw_predictions):
+            results.append(
+                {
+                    **row,
+                    "mode": "rag",
+                    "base_model": str(base_model),
+                    "adapter": str(adapter) if adapter is not None else None,
+                    "generation_batch_size": batch_size,
+                    "raw_prediction": raw,
+                    "prediction": visible_answer(raw),
+                }
+            )
+        write_jsonl(output_path, results, mode="a")
+        completed = min(start + batch_size, len(pending))
+        if completed % progress_every < batch_size or completed == len(pending):
+            print(f"  generated {completed}/{len(pending)} pending rows", flush=True)
     print(f"saved {len(rows)} total rows to {output_path}", flush=True)

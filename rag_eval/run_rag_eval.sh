@@ -5,10 +5,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 python_bin="${PYTHON_BIN:-python}"
-base_model="${BASE_MODEL:-/home/sunyw/SK_RAG/models/Qwen3-VL-2B-Instruct}"
-adapter="${ADAPTER_PATH:-}"
-output_dir="${OUTPUT_DIR:-${repo_root}/rag_eval/results/default}"
-read -r -a dataset_args <<< "${DATASETS:-all}"
+base_model="${BASE_MODEL:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking}"
+adapter="${ADAPTER_PATH:-/home/sunyw/SK_RAG_OPD/outputs/consistent/}"
+output_dir="${OUTPUT_DIR:-${repo_root}/rag_eval/results/test_V1}"
+read -r -a dataset_args <<< "${DATASETS:-VLGuard}"
 
 args=(
   --stage "${STAGE:-generate}"
@@ -22,7 +22,8 @@ args=(
   --top-k "${TOP_K:-3}"
   --embedding-batch-size "${EMBEDDING_BATCH_SIZE:-4}"
   --max-image-pixels "${MAX_IMAGE_PIXELS:-262144}"
-  --max-new-tokens "${MAX_NEW_TOKENS:-256}"
+  --max-new-tokens "${MAX_NEW_TOKENS:-1024}"
+  --generation-batch-size "${GENERATION_BATCH_SIZE:-1}"
   --dtype "${DTYPE:-bfloat16}"
   --limit "${LIMIT:-0}"
 )

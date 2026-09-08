@@ -14,6 +14,7 @@ top_k=3
 limit=0
 output_dir="${repo_root}/rag_eval/results/precomputed_qa"
 max_new_tokens=256
+generation_batch_size=1
 dtype="bfloat16"
 attn_implementation="eager"
 
@@ -36,6 +37,7 @@ args=(
   --base-model "${base_model}"
   --max-image-pixels 262144
   --max-new-tokens "${max_new_tokens}"
+  --generation-batch-size "${generation_batch_size}"
   --dtype "${dtype}"
   --attn-implementation "${attn_implementation}"
   --limit "${limit}"

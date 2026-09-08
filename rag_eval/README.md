@@ -81,6 +81,11 @@ embedding model. The lower-level `run_rag_eval.sh` has the same default
 (`STAGE=generate`); use `STAGE=retrieve` or `STAGE=all` only when you explicitly
 want to recompute retrieval.
 
+QA generation supports batching. The default is `1` for broad GPU compatibility;
+set `GENERATION_BATCH_SIZE=2` or `4` in `run_rag_eval.sh` when the model and
+image workload fit in GPU memory. A batch is written to the JSONL output only
+after all of its samples finish, and ID-based resume remains enabled.
+
 For separate retrieval and generation GPUs or environments, run `STAGE=retrieve`
 first, then run the same command with `STAGE=generate`. The output layout is:
 

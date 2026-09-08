@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-max-length", type=int, default=8192)
     parser.add_argument("--max-image-pixels", type=int, default=262144)
     parser.add_argument("--max-new-tokens", type=int, default=256)
+    parser.add_argument("--generation-batch-size", type=int, default=1)
     parser.add_argument("--dtype", choices=("auto", "bfloat16", "float16", "float32"), default="bfloat16")
     parser.add_argument("--attn-implementation", default="eager")
     parser.add_argument("--limit", type=int, default=0, help="Test rows per dataset; 0 means all")
@@ -121,6 +122,7 @@ def main() -> None:
             max_image_pixels=args.max_image_pixels,
             resume=args.resume,
             progress_every=args.progress_every,
+            batch_size=args.generation_batch_size,
         )
 
 
