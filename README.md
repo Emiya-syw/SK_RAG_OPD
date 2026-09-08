@@ -62,6 +62,32 @@ accelerate launch --num_processes 4 train_opd.py --train_file data/train.jsonl -
 
 更完整的参数可运行 `python train_opd.py --help` 查看。不要把模型权重、训练输出和原始数据提交到 GitHub；`.gitignore` 已默认忽略这些目录。
 
+项目提供三种数据的单独训练脚本：
+
+```bash
+bash scripts/train_consistent.sh
+bash scripts/train_controlled.sh
+bash scripts/train_embedding.sh
+```
+
+连续训练可以运行 consistent -> controlled，或 consistent -> controlled -> embedding：
+
+```bash
+bash scripts/train_consistent_then_controlled.sh
+bash scripts/train_consistent_then_controlled_then_embedding.sh
+```
+
+如果已有训练好的 consistent LoRA 权重，可跳过第一阶段并继续训练：
+
+```bash
+CONSISTENT_INIT_PATH=/path/to/consistent \
+  bash scripts/train_consistent_then_controlled_then_embedding.sh
+```
+
+上述脚本默认使用 student `/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking`、
+teacher `/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-8B-Thinking`，以及
+`/opt/conda/envs/sk_rag_opd/bin/python`；也可通过同名环境变量覆盖。
+
 ## 验证
 
 不需要 GPU 或模型即可运行核心 loss 测试：

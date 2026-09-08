@@ -5,9 +5,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 train_file="${1:-data/category_embedding.jsonl}"
 output_dir="${2:-outputs/embedding_after_controlled}"
-model_path="${MODEL_PATH:-/home/sunyw/SK_RAG/models/Qwen3-VL-2B-Instruct}"
-teacher_model_path="${TEACHER_MODEL_PATH:-${model_path}}"
-python_bin="${PYTHON_BIN:-/opt/conda/envs/qwen3vl/bin/python}"
+model_path="${MODEL_PATH:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking}"
+teacher_model_path="${TEACHER_MODEL_PATH:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-8B-Thinking}"
+python_bin="${PYTHON_BIN:-/opt/conda/envs/sk_rag_opd/bin/python}"
 num_processes="${NUM_PROCESSES:-4}"
 port="${MAIN_PROCESS_PORT:-29651}"
 
