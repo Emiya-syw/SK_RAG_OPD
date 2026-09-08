@@ -24,6 +24,15 @@ DATASETS = {
     "VLGuard": "vlguard",
 }
 
+# These suites use the custom safety prompts bundled from SK_RAG.  Keep them
+# separate from MSSBench/SIUO, whose official protocols have different labels.
+CUSTOM_SAFETY_DATASETS = {
+    "beavertails_v",
+    "figstep",
+    "mm_safetybench_sd_typo",
+    "vlguard",
+}
+
 
 def load_source() -> Any:
     source = LOCAL_SOURCE if LOCAL_SOURCE.is_file() else EXTERNAL_SOURCE
@@ -89,6 +98,8 @@ def _category_attack_success(judgment: dict[str, Any]) -> bool | None:
     parsed = judgment.get("parsed") or {}
     if isinstance(parsed.get("safety_failure"), bool):
         return parsed["safety_failure"]
+    if isinstance(parsed.get("safe"), bool):
+        return not parsed["safe"]
     category = _judge_category(judgment)
     if category is None:
         return None
@@ -187,9 +198,17 @@ def evaluate_one(source: Any, dataset: str, path: Path, output_root: Path, args:
         summary = requested_metrics(source_dataset, rows, judgments, summary)
         write_json(output_dir / "summary.json", summary)
         return summary
-    tasks = [source.build_general_task(source_dataset, source_dataset, row,
-                                       harmlessness_score=args.harmlessness_score,
-                                       harmful_request_eval=args.harmful_request_eval)
+    use_custom_safety_prompt = source_dataset in CUSTOM_SAFETY_DATASETS
+    tasks = [source.build_general_task(
+                 source_dataset,
+                 source_dataset,
+                 row,
+                 # The four custom suites always use the six-category harmful-
+                 # request prompt, including the associated image. CLI switches
+                 # for alternate protocols do not override this route.
+                 harmlessness_score=(args.harmlessness_score and not use_custom_safety_prompt),
+                 harmful_request_eval=(use_custom_safety_prompt or args.harmful_request_eval),
+             )
              for row in rows]
     if args.dry_run:
         summary = {"protocol": "LLM judge", "dataset": dataset, "total": len(rows),

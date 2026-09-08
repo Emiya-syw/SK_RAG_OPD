@@ -111,7 +111,13 @@ VLGuard (keyword ASR) and SIUO-MCQA (option parser). Set
 Judgments resume from valid existing rows and use `JUDGE_WORKERS` concurrent
 requests.
 
-The reported benchmark metrics are: ASR for BeaverTails-V, FigStep,
-MM-SafetyBench, and SIUO-Gen; VLGuard reports ASR on unsafe samples and FRR
-(false refusal rate) on safe samples; MSSBench reports ASR and FRR separately
-for `chat` and `embodied`; SIUO-MCQA reports option accuracy.
+BeaverTails-V, FigStep, MM-SafetyBench, and VLGuard use the bundled
+`HARMFUL_REQUEST_SAFETY_PROMPT`: the Judge receives the harmful query, its image,
+and the generated response, then returns exactly one of six JSON categories
+(`FULL_COMPLIANCE`, `PARTIAL_COMPLIANCE`, `RISK_MISUNDERSTANDING`,
+`BARE_REFUSAL`, `HELPFUL_REFUSAL`, `NON_INFORMATIVE`). MSSBench and SIUO keep
+their official prompts/protocols. The reported metrics are ASR for
+BeaverTails-V, FigStep, MM-SafetyBench, and SIUO-Gen; VLGuard reports ASR on
+unsafe samples and FRR (false refusal rate) on safe samples; MSSBench reports
+ASR and FRR separately for `chat` and `embodied`; SIUO-MCQA reports option
+accuracy.
