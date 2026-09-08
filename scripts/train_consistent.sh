@@ -8,10 +8,10 @@ output_dir="${2:-outputs/consistent}"
 model_path="${MODEL_PATH:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking}"
 teacher_model_path="${TEACHER_MODEL_PATH:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-8B-Thinking}"
 python_bin="${PYTHON_BIN:-/opt/conda/envs/sk_rag_opd/bin/python}"
-num_processes="${NUM_PROCESSES:-4}"
+num_processes="${NUM_PROCESSES:-2}"
 port="${MAIN_PROCESS_PORT:-29643}"
 
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export WANDB_DISABLED="${WANDB_DISABLED:-true}"
 
 "${python_bin}" -m accelerate.commands.launch \
@@ -25,7 +25,7 @@ export WANDB_DISABLED="${WANDB_DISABLED:-true}"
   --remove_unused_columns false \
   --bf16 true \
   --gradient_checkpointing true \
-  --per_device_train_batch_size "${BATCH_SIZE:-1}" \
+  --per_device_train_batch_size "${BATCH_SIZE:-4}" \
   --gradient_accumulation_steps "${GRAD_ACCUM:-8}" \
   --learning_rate "${LR:-5e-6}" \
   --max_grad_norm 0.1 \
@@ -33,10 +33,10 @@ export WANDB_DISABLED="${WANDB_DISABLED:-true}"
   --logging_steps 1 \
   --save_steps 50 \
   --save_total_limit 2 \
-  --max_prompt_length 4096 \
+  --max_prompt_length "${MAX_PROMPT_LENGTH:-4096}" \
   --max_image_pixels "${MAX_IMAGE_PIXELS:-262144}" \
   --include_reference_answer false \
-  --max_new_tokens "${MAX_NEW_TOKENS:-128}" \
+  --max_new_tokens "${MAX_NEW_TOKENS:-8192}" \
   --generation_temperature 1.0 \
   --generation_top_p 0.95 \
   --generation_top_k 20 \

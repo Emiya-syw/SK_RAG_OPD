@@ -86,7 +86,11 @@ CONSISTENT_INIT_PATH=/path/to/consistent \
 
 上述脚本默认使用 student `/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking`、
 teacher `/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-8B-Thinking`，以及
-`/opt/conda/envs/sk_rag_opd/bin/python`；也可通过同名环境变量覆盖。
+`/opt/conda/envs/sk_rag_opd/bin/python`。默认训练配置为两张 GPU
+(`CUDA_VISIBLE_DEVICES=0,1`)、每卡 batch size 4、prompt 长度 4096、最大
+rollout 长度 8192；可通过
+`NUM_PROCESSES`、`CUDA_VISIBLE_DEVICES`、`BATCH_SIZE` 和
+`MAX_PROMPT_LENGTH` 和 `MAX_NEW_TOKENS` 覆盖。
 
 ## 验证
 
