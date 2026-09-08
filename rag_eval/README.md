@@ -86,3 +86,25 @@ rag_eval/results/<run>/<dataset>/answers.jsonl
 `retrieval.jsonl` records every retrieved ID, cosine score, image, question, and
 demonstration answer. `answers.jsonl` additionally contains `raw_prediction` and
 `prediction`, and is appended safely with ID-based resume enabled by default.
+
+## Online safety evaluation
+
+`evaluate_online.py` reuses the prompts, API protocol, parsers, and summaries
+from `/home/sunyw/SK_RAG/scripts/eval/evaluate_safety_alignment_outputs.py`.
+It reads `answers.jsonl` and writes `judgments.jsonl` plus `summary.json` per
+dataset:
+
+```bash
+cd /home/sunyw/SK_RAG_OPD
+export DASHSCOPE_API_KEY='your-key'
+INPUT_ROOT=rag_eval/results/test_V1 \
+EVAL_OUTPUT_ROOT=rag_eval/evaluation/test_V1 \
+bash rag_eval/run_online_eval.sh
+```
+
+The source evaluator's official local protocols remain enabled by default for
+VLGuard (keyword ASR) and SIUO-MCQA (option parser). Set
+`ONLINE_VLGUARD=true` to use its online general judge for VLGuard, or
+`HARMFUL_REQUEST_EVAL=true` to use the six-category harmful-request prompt.
+Judgments resume from valid existing rows and use `JUDGE_WORKERS` concurrent
+requests.

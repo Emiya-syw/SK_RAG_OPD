@@ -5,6 +5,7 @@ __pycache__/
 data/*
 rag_eval/cache/
 rag_eval/results/
+rag_eval/evaluation/
 rag_eval/data/
 !data/.gitkeep
 models/
