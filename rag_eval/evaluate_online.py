@@ -12,7 +12,8 @@ from types import SimpleNamespace
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = Path("/home/sunyw/SK_RAG/scripts/eval/evaluate_safety_alignment_outputs.py")
+LOCAL_SOURCE = Path(__file__).resolve().with_name("evaluate_safety_alignment_outputs.py")
+EXTERNAL_SOURCE = Path("/home/sunyw/SK_RAG/scripts/eval/evaluate_safety_alignment_outputs.py")
 DATASETS = {
     "BeaverTails-V": "beavertails_v",
     "FigStep": "figstep",
@@ -25,9 +26,12 @@ DATASETS = {
 
 
 def load_source() -> Any:
-    if not SOURCE.is_file():
-        raise FileNotFoundError(f"Missing reference evaluator: {SOURCE}")
-    spec = importlib.util.spec_from_file_location("sk_rag_safety_evaluator", SOURCE)
+    source = LOCAL_SOURCE if LOCAL_SOURCE.is_file() else EXTERNAL_SOURCE
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"Missing evaluator. Expected {LOCAL_SOURCE} or {EXTERNAL_SOURCE}"
+        )
+    spec = importlib.util.spec_from_file_location("sk_rag_safety_evaluator", source)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load {SOURCE}")
     module = importlib.util.module_from_spec(spec)

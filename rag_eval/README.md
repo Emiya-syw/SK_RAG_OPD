@@ -89,8 +89,10 @@ demonstration answer. `answers.jsonl` additionally contains `raw_prediction` and
 
 ## Online safety evaluation
 
-`evaluate_online.py` reuses the prompts, API protocol, parsers, and summaries
-from `/home/sunyw/SK_RAG/scripts/eval/evaluate_safety_alignment_outputs.py`.
+`evaluate_online.py` uses the bundled `rag_eval/evaluate_safety_alignment_outputs.py`
+for prompts, API protocol, parsers, and summaries. An existing
+`/home/sunyw/SK_RAG/scripts/eval/evaluate_safety_alignment_outputs.py` is used
+only as a compatibility fallback.
 It reads `answers.jsonl` and writes `judgments.jsonl` plus `summary.json` per
 dataset:
 
