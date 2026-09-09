@@ -7,7 +7,11 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import torch
 from datasets import load_dataset
@@ -57,6 +61,12 @@ class OPDArguments:
     top_k_loss: int = 0
     jsd_token_clip: float = 0.0
     advantage_clip: float = 5.0
+    validation_enabled: bool = False
+    validation_test_file: str = "rag_eval/data/VLGuard/test_qwen3vl_embedding_top3.jsonl"
+    validation_sample_size: int = 256
+    validation_seed: int = 42
+    validation_max_new_tokens: int = 512
+    validation_cuda_visible_devices: str = "0"
 
 
 def _dtype(name: str):
@@ -131,6 +141,59 @@ def main() -> None:
                 target_modules=[x.strip() for x in model_args.lora_target_modules.split(",") if x.strip()],
                 bias="none", task_type="CAUSAL_LM"))
         model.print_trainable_parameters()
+    callbacks = []
+    if opd_args.validation_enabled:
+        from transformers import TrainerCallback
+
+        class CheckpointValidationCallback(TrainerCallback):
+            def on_save(self, args, state, control, **kwargs):
+                if not state.is_world_process_zero:
+                    return control
+                checkpoint = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+                if not checkpoint.is_dir():
+                    return control
+                devices = [value.strip() for value in opd_args.validation_cuda_visible_devices.split(",") if value.strip()]
+                if not devices:
+                    raise ValueError("validation_cuda_visible_devices must contain at least one GPU")
+                shard_outputs = [checkpoint / f"vlguard_validation.rank{i}of{len(devices)}.json"
+                                 for i in range(len(devices))]
+                processes = []
+                for shard_index, (device, output) in enumerate(zip(devices, shard_outputs)):
+                    command = [
+                        sys.executable, "-m", "rag_eval.validate_opd", "--enabled", "--asr-only",
+                        "--checkpoint", str(checkpoint),
+                        "--base-model", model_args.model_name_or_path,
+                        "--test-file", opd_args.validation_test_file,
+                        "--output", str(output),
+                        "--sample-size", str(opd_args.validation_sample_size),
+                        "--seed", str(opd_args.validation_seed),
+                        "--shard-index", str(shard_index), "--num-shards", str(len(devices)),
+                        "--max-new-tokens", str(opd_args.validation_max_new_tokens),
+                        "--dtype", model_args.torch_dtype,
+                        "--attn-implementation", model_args.attn_implementation,
+                    ]
+                    environment = dict(os.environ)
+                    environment["CUDA_VISIBLE_DEVICES"] = device
+                    processes.append(subprocess.Popen(command, cwd=str(Path(__file__).resolve().parent), env=environment))
+                statuses = [process.wait() for process in processes]
+                if any(status != 0 for status in statuses):
+                    raise RuntimeError(f"checkpoint validation failed: exit codes {statuses}")
+                shard_data = [json.loads(path.read_text(encoding="utf-8")) for path in shard_outputs]
+                records = [record for data in shard_data for record in data.get("records", [])]
+                unsafe = [record for record in records if record.get("subset") == "unsafe_instruction"]
+                merged_metrics = {
+                    "metric": "ASR", "attack_success": sum(bool(r["attack_success"]) for r in unsafe),
+                    "unsafe_count": len(unsafe),
+                    "asr_pct": 100.0 * sum(bool(r["attack_success"]) for r in unsafe) / max(1, len(unsafe)),
+                }
+                output = checkpoint / "vlguard_validation.json"
+                output.write_text(json.dumps({"checkpoint": str(checkpoint), "sample_size": len(records),
+                                              "seed": opd_args.validation_seed, "metrics": merged_metrics,
+                                              "records": records}, ensure_ascii=False, indent=2), encoding="utf-8")
+                return control
+
+        callbacks.append(CheckpointValidationCallback())
+
     trainer = OPDTrainer(
         model=model, args=training_args, train_dataset=load_train_dataset(data_args),
         data_collator=OPDDataCollator(processor, data_args.max_prompt_length,
@@ -142,7 +205,8 @@ def main() -> None:
         repetition_penalty=opd_args.repetition_penalty,
         fixed_teacher=opd_args.fixed_teacher, loss_type=opd_args.loss_type,
         beta=opd_args.beta, top_k_loss=opd_args.top_k_loss,
-        jsd_token_clip=opd_args.jsd_token_clip, advantage_clip=opd_args.advantage_clip)
+        jsd_token_clip=opd_args.jsd_token_clip, advantage_clip=opd_args.advantage_clip,
+        callbacks=callbacks)
     trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
     trainer.save_model(training_args.output_dir)
     processor.save_pretrained(training_args.output_dir)

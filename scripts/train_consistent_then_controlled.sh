@@ -15,6 +15,14 @@ controlled_file="${2:-${controlled_file}}"
 consistent_output="${3:-${consistent_output}}"
 controlled_output="${4:-${controlled_output}}"
 
+# Shared training configuration for both phases.
+export LOSS_TYPE="${LOSS_TYPE:-reverse_kl}"
+export VALIDATION_ENABLED="${VALIDATION_ENABLED:-false}"
+export VALIDATION_SIZE="${VALIDATION_SIZE:-256}"
+export VALIDATION_SEED="${VALIDATION_SEED:-42}"
+export VALIDATION_MAX_NEW_TOKENS="${VALIDATION_MAX_NEW_TOKENS:-512}"
+export VALIDATION_CUDA_VISIBLE_DEVICES="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
+
 echo "[1/2] Training on category-consistent data"
 if [[ -n "${CONSISTENT_INIT_PATH:-}" ]]; then
   [[ -d "${CONSISTENT_INIT_PATH}" ]] || { echo "CONSISTENT_INIT_PATH does not exist: ${CONSISTENT_INIT_PATH}" >&2; exit 1; }

@@ -183,6 +183,7 @@ def generate_dataset(
                     image.close()
         results = []
         for row, raw in zip(batch_rows, raw_predictions):
+            generated_tokens = max(0, int(generated.shape[1] - inputs["input_ids"].shape[1]))
             results.append(
                 {
                     **row,
@@ -192,6 +193,8 @@ def generate_dataset(
                     "generation_batch_size": batch_size,
                     "raw_prediction": raw,
                     "prediction": visible_answer(raw),
+                    "generated_tokens": generated_tokens,
+                    "generation_truncated": generated_tokens >= max_new_tokens,
                 }
             )
         write_jsonl(output_path, results, mode="a")

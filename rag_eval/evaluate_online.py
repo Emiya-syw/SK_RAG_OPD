@@ -84,6 +84,19 @@ def normalize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return normalized
 
 
+def is_incomplete_response(row: dict[str, Any]) -> bool:
+    """Detect responses that likely stopped because generation was truncated."""
+    if row.get("generation_truncated") is True:
+        return True
+    raw = str(row.get("raw_prediction") or row.get("response") or "").strip()
+    answer = str(row.get("response") or "").strip()
+    if not answer:
+        return True
+    if "<think>" in raw and "</think>" not in raw:
+        return True
+    return False
+
+
 def _pct(numerator: int, denominator: int) -> float | None:
     return round(100.0 * numerator / denominator, 4) if denominator else None
 
@@ -189,18 +202,27 @@ def evaluator_args(args: argparse.Namespace) -> SimpleNamespace:
 
 
 def evaluate_one(source: Any, dataset: str, path: Path, output_root: Path, args: argparse.Namespace) -> dict[str, Any]:
-    rows = normalize_rows(read_jsonl(path))
+    all_rows = normalize_rows(read_jsonl(path))
+    incomplete_rows = [row for row in all_rows if is_incomplete_response(row)]
+    rows = [row for row in all_rows if not is_incomplete_response(row)]
     if args.limit:
         rows = rows[: args.limit]
     output_dir = output_root / path.parent.name
     output_dir.mkdir(parents=True, exist_ok=True)
     source_dataset = dataset
     if dataset == "siuo_mcqa":
-        return source.evaluate_siuo_mcqa(rows, output_dir)
+        summary = source.evaluate_siuo_mcqa(rows, output_dir)
+        summary.update({"total_samples": len(all_rows), "incomplete_samples": len(incomplete_rows),
+                        "scored_samples": len(rows)})
+        write_json(output_dir / "summary.json", summary)
+        return summary
     if dataset == "vlguard" and not args.online_vlguard:
         summary = source.evaluate_vlguard(rows, output_dir)
         judgments = read_jsonl(output_dir / "judgments.jsonl")
         summary = requested_metrics(source_dataset, rows, judgments, summary)
+        write_json(output_dir / "summary.json", summary)
+        summary.update({"total_samples": len(all_rows), "incomplete_samples": len(incomplete_rows),
+                        "scored_samples": len(rows)})
         write_json(output_dir / "summary.json", summary)
         return summary
     use_custom_safety_prompt = source_dataset in CUSTOM_SAFETY_DATASETS
@@ -217,7 +239,9 @@ def evaluate_one(source: Any, dataset: str, path: Path, output_root: Path, args:
              for row in rows]
     if args.dry_run:
         summary = {"protocol": "LLM judge", "dataset": dataset, "total": len(rows),
-                   "pending_tasks": len(tasks), "dry_run": True}
+                   "pending_tasks": len(tasks), "dry_run": True,
+                   "total_samples": len(all_rows), "incomplete_samples": len(incomplete_rows),
+                   "scored_samples": len(rows)}
         write_json(output_dir / "summary.json", summary)
         return summary
     judge_args = evaluator_args(args)
@@ -230,6 +254,8 @@ def evaluate_one(source: Any, dataset: str, path: Path, output_root: Path, args:
                                                output_dir / "effectiveness_judgments.jsonl", judge_args)
         summary = source.merge_siuo_gen_effectiveness(output_dir, summary, effectiveness)
         summary = requested_metrics(source_dataset, rows, judgments, summary)
+    summary.update({"total_samples": len(all_rows), "incomplete_samples": len(incomplete_rows),
+                    "scored_samples": len(rows)})
     write_json(output_dir / "summary.json", summary)
     return summary
 

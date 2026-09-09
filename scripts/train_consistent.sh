@@ -10,6 +10,11 @@ teacher_model_path="${TEACHER_MODEL_PATH:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL
 python_bin="${PYTHON_BIN:-/opt/conda/envs/sk_rag_opd/bin/python}"
 num_processes="${NUM_PROCESSES:-2}"
 port="${MAIN_PROCESS_PORT:-29643}"
+validation_enabled="${VALIDATION_ENABLED:-false}"
+validation_size="${VALIDATION_SIZE:-256}"
+validation_seed="${VALIDATION_SEED:-42}"
+validation_max_new_tokens="${VALIDATION_MAX_NEW_TOKENS:-512}"
+validation_gpus="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export WANDB_DISABLED="${WANDB_DISABLED:-true}"
@@ -36,12 +41,18 @@ export WANDB_DISABLED="${WANDB_DISABLED:-true}"
   --max_prompt_length "${MAX_PROMPT_LENGTH:-4096}" \
   --max_image_pixels "${MAX_IMAGE_PIXELS:-262144}" \
   --include_reference_answer true \
+  --validation_enabled "${validation_enabled}" \
+  --validation_test_file "${VALIDATION_TEST_FILE:-rag_eval/data/VLGuard/test_qwen3vl_embedding_top3.jsonl}" \
+  --validation_sample_size "${validation_size}" \
+  --validation_seed "${validation_seed}" \
+  --validation_max_new_tokens "${validation_max_new_tokens}" \
+  --validation_cuda_visible_devices "${validation_gpus}" \
   --max_new_tokens "${MAX_NEW_TOKENS:-2048}" \
   --generation_temperature 1.0 \
   --generation_top_p 0.95 \
   --generation_top_k 20 \
   --repetition_penalty "${REPETITION_PENALTY:-1.05}" \
-  --loss_type "${LOSS_TYPE:-jsd}" \
+  --loss_type "${LOSS_TYPE:-reverse_kl}" \
   --beta 0.5 \
   --top_k_loss "${TOP_K_LOSS:-128}" \
   --jsd_token_clip 0.05 \

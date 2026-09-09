@@ -20,6 +20,14 @@ controlled_output="${5:-${controlled_output}}"
 embedding_output="${6:-${embedding_output}}"
 script_dir="$(dirname "${BASH_SOURCE[0]}")"
 
+# Shared training configuration for all three phases.
+export LOSS_TYPE="${LOSS_TYPE:-reverse_kl}"
+export VALIDATION_ENABLED="${VALIDATION_ENABLED:-false}"
+export VALIDATION_SIZE="${VALIDATION_SIZE:-256}"
+export VALIDATION_SEED="${VALIDATION_SEED:-42}"
+export VALIDATION_MAX_NEW_TOKENS="${VALIDATION_MAX_NEW_TOKENS:-512}"
+export VALIDATION_CUDA_VISIBLE_DEVICES="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
+
 echo "[1/3] Training on category-consistent data"
 if [[ -n "${CONSISTENT_INIT_PATH:-}" ]]; then
   [[ -d "${CONSISTENT_INIT_PATH}" ]] || { echo "CONSISTENT_INIT_PATH does not exist: ${CONSISTENT_INIT_PATH}" >&2; exit 1; }
