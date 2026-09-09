@@ -3,7 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# Set VALIDATION_ENABLED=false to make this a no-op in checkpoint pipelines.
+# CHECKPOINT_PATH 指定 checkpoint；BASE_MODEL 指定学生 base model。
+# VALIDATION_SIZE/SEED 控制抽样；VALIDATION_MAX_NEW_TOKENS 控制生成长度。
+# CUDA_VISIBLE_DEVICES 指定验证 GPU；VALIDATION_OUTPUT 指定 JSON 输出路径。
+# VALIDATION_ENABLED=false 可跳过验证。
 if [[ "${VALIDATION_ENABLED:-true}" != "true" ]]; then
   echo "OPD validation disabled"
   exit 0

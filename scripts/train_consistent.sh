@@ -3,6 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# train_file 和 output_dir 分别是训练数据与输出目录。
 train_file="${1:-data/category_consistent.jsonl}"
 output_dir="${2:-outputs/consistent}"
 model_path="${MODEL_PATH:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking}"
@@ -16,6 +17,10 @@ validation_seed="${VALIDATION_SEED:-42}"
 validation_max_new_tokens="${VALIDATION_MAX_NEW_TOKENS:-512}"
 validation_gpus="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
 
+# model_path/teacher_model_path 指定学生/教师模型；num_processes 指定 GPU 进程数。
+# BATCH_SIZE、GRAD_ACCUM、LR、EPOCHS 控制训练；MAX_PROMPT_LENGTH/MAX_NEW_TOKENS 控制长度。
+# TEACHER_PROMPT_MODE 控制 teacher 使用 student 或 privileged prompt。
+# VALIDATION_* 控制 checkpoint 保存后的 VLGuard 验证；LoRA 参数控制 adapter。
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export WANDB_DISABLED="${WANDB_DISABLED:-true}"
 

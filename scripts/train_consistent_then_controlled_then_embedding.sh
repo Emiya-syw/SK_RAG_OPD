@@ -3,6 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# 六个位置参数依次覆盖三份数据文件和三个阶段的输出目录。
 # Edit this block for a repeat run. Command-line arguments, when provided,
 # temporarily override these values without changing the script.
 consistent_file="data/category_consistent.jsonl"
@@ -20,7 +21,7 @@ controlled_output="${5:-${controlled_output}}"
 embedding_output="${6:-${embedding_output}}"
 script_dir="$(dirname "${BASH_SOURCE[0]}")"
 
-# Shared training configuration for all three phases.
+# 三阶段共享 loss、teacher prompt 和验证配置，并自动传递给子脚本。
 export LOSS_TYPE="${LOSS_TYPE:-reverse_kl}"
 export TEACHER_PROMPT_MODE="${TEACHER_PROMPT_MODE:-student}"
 export VALIDATION_ENABLED="${VALIDATION_ENABLED:-false}"

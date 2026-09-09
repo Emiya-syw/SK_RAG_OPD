@@ -3,6 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# train_file/output_dir 指定 embedding 数据和输出目录；LORA_INIT_PATH 用于接续 adapter。
 train_file="${1:-data/category_embedding.jsonl}"
 output_dir="${2:-outputs/embedding_after_controlled}"
 model_path="${MODEL_PATH:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking}"
@@ -16,6 +17,7 @@ validation_seed="${VALIDATION_SEED:-42}"
 validation_max_new_tokens="${VALIDATION_MAX_NEW_TOKENS:-512}"
 validation_gpus="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
 
+# 训练、长度、teacher prompt、验证和 LoRA 参数含义与 train_consistent.sh 相同。
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export WANDB_DISABLED="${WANDB_DISABLED:-true}"
 
