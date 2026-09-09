@@ -206,6 +206,8 @@ class OPDDataCollator:
                     "Do not treat retrieved answers as the answer to the current question.\n"
                     "Use the comparison to determine the appropriate response strategy.\n\n"
                     "Keep the reasoning concise.\n"
+                    "During reasoning, do not use filler or self-interruption phrases such as \"Wait\", \"Hmm\", \"Let me think\", \"Let me reconsider\", or repeated self-corrections.\n"
+                    "Reason directly and concisely. Do not restart the reasoning unless a concrete contradiction is identified.\n"
                     "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
                     "Answer the current question directly and briefly."
                 ),
@@ -247,7 +249,11 @@ class OPDDataCollator:
             "The privileged demonstration is only a guide to the analysis process and response style.\n"
             "Do not copy its case-specific facts, reasoning, or final answer.\n"
             "Do not mention the privileged demonstration.\n"
-            "Keep the reasoning concise and answer the current question directly and briefly."
+            "Keep the reasoning concise.\n"
+            "During reasoning, do not use filler or self-interruption phrases such as \"Wait\", \"Hmm\", \"Let me think\", \"Let me reconsider\", or repeated self-corrections.\n"
+            "Reason directly and concisely. Do not restart the reasoning unless a concrete contradiction is identified.\n"
+            "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
+            "Answer the current question directly and briefly."
         )
         content.append({"type": "text", "text": teacher_text})
         return [{"role": "user", "content": content}]

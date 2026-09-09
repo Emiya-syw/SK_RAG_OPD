@@ -47,6 +47,8 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
                 "Do not treat retrieved answers as the answer to the current question.\n"
                 "Use the comparison to determine the appropriate response strategy.\n\n"
                 "Keep the reasoning concise.\n"
+                "During reasoning, do not use filler or self-interruption phrases such as \"Wait\", \"Hmm\", \"Let me think\", \"Let me reconsider\", or repeated self-corrections.\n"
+                "Reason directly and concisely. Do not restart the reasoning unless a concrete contradiction is identified.\n"
                 "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
                 "Answer the current question directly and briefly."
             ),
