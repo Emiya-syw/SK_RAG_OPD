@@ -42,6 +42,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--progress-every", type=int, default=20)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--output-suffix", default="", help="Suffix before .jsonl for sharded outputs")
     return parser.parse_args()
 
 
@@ -115,7 +118,9 @@ def main() -> None:
             model=model,
             processor=processor,
             retrieval_path=retrieval_path,
-            output_path=args.output_dir / files.name / "answers.jsonl",
+            output_path=args.output_dir / files.name / (
+                f"answers{args.output_suffix}.jsonl" if args.output_suffix else "answers.jsonl"
+            ),
             base_model=args.base_model,
             adapter=args.adapter,
             max_new_tokens=args.max_new_tokens,
@@ -123,6 +128,8 @@ def main() -> None:
             resume=args.resume,
             progress_every=args.progress_every,
             batch_size=args.generation_batch_size,
+            shard_index=args.shard_index,
+            num_shards=args.num_shards,
         )
 
 

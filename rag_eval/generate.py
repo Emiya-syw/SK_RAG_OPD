@@ -129,12 +129,18 @@ def generate_dataset(
     resume: bool,
     progress_every: int,
     batch_size: int = 1,
+    shard_index: int = 0,
+    num_shards: int = 1,
 ) -> None:
     import torch
 
     if batch_size < 1:
         raise ValueError("generation batch_size must be >= 1")
     rows = read_jsonl(retrieval_path)
+    if num_shards < 1 or not 0 <= shard_index < num_shards:
+        raise ValueError(f"invalid shard {shard_index}/{num_shards}")
+    if num_shards > 1:
+        rows = rows[shard_index::num_shards]
     done = _completed_ids(output_path) if resume else set()
     pending = [row for row in rows if str(row["id"]) not in done]
     if output_path.exists() and not resume:

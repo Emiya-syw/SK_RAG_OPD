@@ -10,6 +10,38 @@ adapter="${ADAPTER_PATH:-/home/sunyw/SK_RAG_OPD/outputs/consistent/}"
 output_dir="${OUTPUT_DIR:-${repo_root}/rag_eval/results/test_V1}"
 read -r -a dataset_args <<< "${DATASETS:-VLGuard}"
 
+# Set MULTI_GPU=true to launch one generation process per GPU. Each process
+# receives every N-th test row and writes a shard which is merged afterwards.
+if [[ "${MULTI_GPU:-true}" == "true" ]]; then
+  if [[ "${STAGE:-generate}" != "generate" ]]; then
+    echo "MULTI_GPU mode currently supports STAGE=generate only; run retrieval once first." >&2
+    exit 2
+  fi
+  IFS=',' read -r -a gpu_ids <<< "${GPU_IDS:-${CUDA_VISIBLE_DEVICES:-0,1}}"
+  num_shards="${#gpu_ids[@]}"
+  pids=()
+  for shard_index in "${!gpu_ids[@]}"; do
+    CUDA_VISIBLE_DEVICES="${gpu_ids[$shard_index]}" MULTI_GPU=false \
+      "${BASH_SOURCE[0]}" \
+      --internal-multi-gpu-shard "${shard_index}" "${num_shards}" &
+    pids+=("$!")
+  done
+  status=0
+  for pid in "${pids[@]}"; do wait "${pid}" || status=1; done
+  [[ "${status}" -eq 0 ]] || exit "${status}"
+  "${python_bin}" -m rag_eval.merge_answer_shards \
+    --output-dir "${output_dir}" --datasets "${dataset_args[@]}" --num-shards "${num_shards}"
+  exit 0
+fi
+
+if [[ "${1:-}" == "--internal-multi-gpu-shard" ]]; then
+  shard_index="$2"
+  num_shards="$3"
+else
+  shard_index=0
+  num_shards=1
+fi
+
 args=(
   --stage "${STAGE:-generate}"
   --datasets "${dataset_args[@]}"
@@ -26,7 +58,13 @@ args=(
   --generation-batch-size "${GENERATION_BATCH_SIZE:-1}"
   --dtype "${DTYPE:-bfloat16}"
   --limit "${LIMIT:-0}"
+  --shard-index "${shard_index}" \
+  --num-shards "${num_shards}"
 )
+
+if [[ "${num_shards}" -gt 1 ]]; then
+  args+=(--output-suffix ".rank${shard_index}of${num_shards}")
+fi
 
 if [[ -n "${adapter}" ]]; then
   args+=(--adapter "${adapter}")
