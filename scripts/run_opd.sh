@@ -17,6 +17,7 @@ validation_gpus="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
   --remove_unused_columns false \
   --gradient_checkpointing true \
   --validation_enabled "${validation_enabled}" \
+  --teacher_prompt_mode "${TEACHER_PROMPT_MODE:-student}" \
   --validation_test_file "${VALIDATION_TEST_FILE:-rag_eval/data/VLGuard/test_qwen3vl_embedding_top3.jsonl}" \
   --validation_sample_size "${validation_size}" \
   --validation_seed "${validation_seed}" \

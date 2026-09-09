@@ -22,6 +22,7 @@ script_dir="$(dirname "${BASH_SOURCE[0]}")"
 
 # Shared training configuration for all three phases.
 export LOSS_TYPE="${LOSS_TYPE:-reverse_kl}"
+export TEACHER_PROMPT_MODE="${TEACHER_PROMPT_MODE:-student}"
 export VALIDATION_ENABLED="${VALIDATION_ENABLED:-false}"
 export VALIDATION_SIZE="${VALIDATION_SIZE:-256}"
 export VALIDATION_SEED="${VALIDATION_SEED:-42}"

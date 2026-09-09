@@ -70,6 +70,7 @@ class OPDDataCollator:
         image_root: str | None = None,
         max_image_pixels: int = 262144,
         teacher_processor=None,
+        teacher_prompt_mode: str = "student",
     ) -> None:
         self.processor = processor
         self.teacher_processor = teacher_processor or processor
@@ -78,6 +79,9 @@ class OPDDataCollator:
         self.include_reference_answer = include_reference_answer
         self.image_root = image_root
         self.max_image_pixels = max_image_pixels
+        if teacher_prompt_mode not in {"student", "privileged"}:
+            raise ValueError("teacher_prompt_mode must be 'student' or 'privileged'")
+        self.teacher_prompt_mode = teacher_prompt_mode
         self.tokenizer.padding_side = "left"
 
     def _format_examples(self, examples: Any) -> str:
@@ -221,56 +225,32 @@ class OPDDataCollator:
         answer: str,
         demonstration: str,
     ) -> list[dict[str, Any]]:
+        if self.teacher_prompt_mode == "student":
+            return self._student_messages(question, examples)
         content: list[dict[str, Any]] = [
-            {"type": "text", "text": "Current Image\n\n"},
-            {"type": "image"},
-            {
-                "type": "text",
-                "text": (
-                    f"\n\nCurrent Question\n\n{question}\n\n"
-                    "Retrieved Examples\n\n"
-                ),
-            },
+            {"type": "text", "text": "Current Image\n\n"}, {"type": "image"},
+            {"type": "text", "text": f"\n\nCurrent Question\n\n{question}\n\nRetrieved Examples\n\n"},
         ]
-
         self._append_multimodal_examples(content, examples)
-
-        thought = demonstration.strip() or "N/A"
-        response = answer.strip() or "N/A"
         teacher_text = (
-            "\nDemonstration\n\n"
-            "<think>\n"
-            f"{thought}\n"
-            "</think>\n\n"
-            f"{response}"
-        )
-        teacher_text += (
+            "\nDemonstration\n\n<think>\n" + (demonstration.strip() or "N/A") +
+            "\n</think>\n\n" + (answer.strip() or "N/A") +
             "\n\nInstruction\n\n"
             "Analyze all retrieved cases before answering the current question.\n\n"
-            "For each retrieved case, briefly identify:\n"
-            "1. Its main intent.\n"
-            "2. Its relevant safety or helpfulness pattern.\n"
-            "3. Its response strategy.\n\n"
+            "For each retrieved case, briefly identify:\n1. Its main intent.\n"
+            "2. Its relevant safety or helpfulness pattern.\n3. Its response strategy.\n\n"
             "Then compare all retrieved cases with the current image and question.\n"
             "Extract the shared principle across the retrieved cases.\n"
             "Mention only the differences that affect the current case.\n"
             "Do not treat retrieved answers as the answer to the current question.\n"
             "Use the comparison to determine the appropriate response strategy.\n\n"
-            "The privileged demonstration is provided only to teach the intended analysis process and response style.\n"
+            "The privileged demonstration is only a guide to the analysis process and response style.\n"
             "Do not copy its case-specific facts, reasoning, or final answer.\n"
-            "Do not mention the privileged demonstration in the response.\n"
-            "Use the current image, current question, and retrieved cases as the evidence for the current answer.\n\n"
-            "Keep the reasoning concise.\n"
-            "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
-            "Answer the current question directly and briefly."
+            "Do not mention the privileged demonstration.\n"
+            "Keep the reasoning concise and answer the current question directly and briefly."
         )
         content.append({"type": "text", "text": teacher_text})
-        return [
-            {
-                "role": "user",
-                "content": content,
-            }
-        ]
+        return [{"role": "user", "content": content}]
 
     def _encode(self, texts: list[str], images: list[Image.Image]) -> dict[str, Any]:
         return self.processor(

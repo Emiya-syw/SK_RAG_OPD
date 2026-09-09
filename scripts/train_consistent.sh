@@ -41,6 +41,7 @@ export WANDB_DISABLED="${WANDB_DISABLED:-true}"
   --max_prompt_length "${MAX_PROMPT_LENGTH:-4096}" \
   --max_image_pixels "${MAX_IMAGE_PIXELS:-262144}" \
   --include_reference_answer true \
+  --teacher_prompt_mode "${TEACHER_PROMPT_MODE:-student}" \
   --validation_enabled "${validation_enabled}" \
   --validation_test_file "${VALIDATION_TEST_FILE:-rag_eval/data/VLGuard/test_qwen3vl_embedding_top3.jsonl}" \
   --validation_sample_size "${validation_size}" \

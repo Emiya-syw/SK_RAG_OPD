@@ -46,6 +46,7 @@ class DataArguments:
     max_image_pixels: int = 262144
     include_reference_answer: bool = True
     image_root: str | None = None
+    teacher_prompt_mode: str = "student"
 
 
 @dataclass
@@ -198,7 +199,8 @@ def main() -> None:
         model=model, args=training_args, train_dataset=load_train_dataset(data_args),
         data_collator=OPDDataCollator(processor, data_args.max_prompt_length,
                                        data_args.include_reference_answer, data_args.image_root,
-                                       data_args.max_image_pixels, teacher_processor=teacher_processor), processor=processor,
+                                       data_args.max_image_pixels, teacher_processor=teacher_processor,
+                                       teacher_prompt_mode=data_args.teacher_prompt_mode), processor=processor,
         teacher_model=teacher_model,
         max_new_tokens=opd_args.max_new_tokens, temperature=opd_args.generation_temperature,
         top_p=opd_args.generation_top_p, top_k=opd_args.generation_top_k,
