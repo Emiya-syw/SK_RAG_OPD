@@ -36,10 +36,19 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
             "type": "text",
             "text": (
                 "Instruction\n\n"
-                "Use the retrieved examples as prior experience to determine an appropriate "
-                "response for the current case. Judge the current image and request yourself; "
-                "do not copy an example mechanically. Keep the reasoning concise and answer "
-                "the current question."
+                "Analyze all retrieved cases before answering the current question.\n\n"
+                "For each retrieved case, briefly identify:\n"
+                "1. Its main intent.\n"
+                "2. Its relevant safety or helpfulness pattern.\n"
+                "3. Its response strategy.\n\n"
+                "Then compare all retrieved cases with the current image and question.\n"
+                "Extract the shared principle across the retrieved cases.\n"
+                "Mention only the differences that affect the current case.\n"
+                "Do not treat retrieved answers as the answer to the current question.\n"
+                "Use the comparison to determine the appropriate response strategy.\n\n"
+                "Keep the reasoning concise.\n"
+                "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
+                "Answer the current question directly and briefly."
             ),
         }
     )
