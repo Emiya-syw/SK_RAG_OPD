@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Transformers 5.x emits a non-actionable processor kwargs warning repeatedly.
+export TRANSFORMERS_VERBOSITY="${TRANSFORMERS_VERBOSITY:-error}"
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # 六个位置参数依次覆盖三份数据文件和三个阶段的输出目录。

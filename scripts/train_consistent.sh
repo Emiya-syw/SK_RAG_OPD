@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export TRANSFORMERS_VERBOSITY="${TRANSFORMERS_VERBOSITY:-error}"
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # train_file 和 output_dir 分别是训练数据与输出目录。

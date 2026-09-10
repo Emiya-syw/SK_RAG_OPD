@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export TRANSFORMERS_VERBOSITY="${TRANSFORMERS_VERBOSITY:-error}"
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # $1 为训练 JSONL，$2 为输出目录。
 train_file="${1:?usage: scripts/run_opd.sh TRAIN_JSONL [OUTPUT_DIR]}"

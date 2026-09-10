@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export TRANSFORMERS_VERBOSITY="${TRANSFORMERS_VERBOSITY:-error}"
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # train_file/output_dir 指定 controlled 数据和输出目录；LORA_INIT_PATH 用于接续 adapter。
