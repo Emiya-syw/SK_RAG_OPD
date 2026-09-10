@@ -38,6 +38,7 @@ export WANDB_DISABLED="${WANDB_DISABLED:-true}"
   --remove_unused_columns false \
   --bf16 true \
   --gradient_checkpointing true \
+  --gradient_checkpointing_kwargs '{"use_reentrant":false}' \
   --per_device_train_batch_size "${BATCH_SIZE:-4}" \
   --gradient_accumulation_steps "${GRAD_ACCUM:-8}" \
   --learning_rate "${LR:-5e-6}" \

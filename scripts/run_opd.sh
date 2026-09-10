@@ -23,6 +23,7 @@ enable_thinking="${ENABLE_THINKING:-true}"
   --use_lora true \
   --remove_unused_columns false \
   --gradient_checkpointing true \
+  --gradient_checkpointing_kwargs '{"use_reentrant":false}' \
   --validation_enabled "${validation_enabled}" \
   --teacher_prompt_mode "${TEACHER_PROMPT_MODE:-student}" \
   --enable_thinking "${enable_thinking}" \
