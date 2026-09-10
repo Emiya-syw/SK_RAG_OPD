@@ -171,8 +171,10 @@ def generate_dataset(
             inputs = processor(
                 text=texts,
                 images=batch_images if any(batch_images) else None,
-                padding=True,
-                return_tensors="pt",
+                processor_kwargs={
+                    "padding": True,
+                    "return_tensors": "pt",
+                },
             )
             device = next(model.parameters()).device
             inputs = {key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()}

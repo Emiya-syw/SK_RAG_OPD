@@ -264,10 +264,12 @@ class OPDDataCollator:
         return self.processor(
             text=texts,
             images=images,
-            padding=True,
-            truncation=True,
-            max_length=self.max_prompt_length,
-            return_tensors="pt",
+            processor_kwargs={
+                "padding": True,
+                "truncation": True,
+                "max_length": self.max_prompt_length,
+                "return_tensors": "pt",
+            },
         )
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
@@ -339,8 +341,10 @@ class OPDDataCollator:
         return processor(
             text=texts,
             images=images,
-            padding=True,
-            truncation=True,
-            max_length=max_prompt_length,
-            return_tensors="pt",
+            processor_kwargs={
+                "padding": True,
+                "truncation": True,
+                "max_length": max_prompt_length,
+                "return_tensors": "pt",
+            },
         )
