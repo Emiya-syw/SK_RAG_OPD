@@ -137,8 +137,13 @@ def main() -> None:
         try:
             text = processor.apply_chat_template(build_rag_messages(row), tokenize=False,
                                                  add_generation_prompt=True,
-                                                 chat_template_kwargs={"enable_thinking": args.enable_thinking})
-            inputs = processor(text=[text], images=[images], padding=True, return_tensors="pt")
+                                                 template_kwargs={"enable_thinking": args.enable_thinking})
+            inputs = processor(
+                text=[text],
+                images=[images],
+                text_kwargs={"padding": True, "return_tensors": "pt"},
+                images_kwargs={},
+            )
             generation_inputs = {key: value.to(student_device) if hasattr(value, "to") else value
                                  for key, value in inputs.items()}
             with torch.inference_mode():

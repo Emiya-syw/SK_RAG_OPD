@@ -264,10 +264,13 @@ class OPDDataCollator:
         return self.processor(
             text=texts,
             images=images,
-            padding=True,
-            truncation=True,
-            max_length=self.max_prompt_length,
-            return_tensors="pt",
+            text_kwargs={
+                "padding": True,
+                "truncation": True,
+                "max_length": self.max_prompt_length,
+                "return_tensors": "pt",
+            },
+            images_kwargs={},
         )
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
@@ -297,7 +300,7 @@ class OPDDataCollator:
                     self._student_messages(question, examples),
                     tokenize=False,
                     add_generation_prompt=True,
-                    chat_template_kwargs={"enable_thinking": self.enable_thinking},
+                    template_kwargs={"enable_thinking": self.enable_thinking},
                 )
             )
             teacher_texts.append(
@@ -305,7 +308,7 @@ class OPDDataCollator:
                     self._teacher_messages(question, examples, answer, demonstration),
                     tokenize=False,
                     add_generation_prompt=True,
-                    chat_template_kwargs={"enable_thinking": self.enable_thinking},
+                    template_kwargs={"enable_thinking": self.enable_thinking},
                 )
             )
             student_images.append([image, *retrieved_images])
@@ -339,8 +342,11 @@ class OPDDataCollator:
         return processor(
             text=texts,
             images=images,
-            padding=True,
-            truncation=True,
-            max_length=max_prompt_length,
-            return_tensors="pt",
+            text_kwargs={
+                "padding": True,
+                "truncation": True,
+                "max_length": max_prompt_length,
+                "return_tensors": "pt",
+            },
+            images_kwargs={},
         )

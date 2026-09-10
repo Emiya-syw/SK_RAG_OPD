@@ -164,15 +164,15 @@ def generate_dataset(
             texts = [
                 processor.apply_chat_template(
                     build_rag_messages(row), tokenize=False, add_generation_prompt=True,
-                    chat_template_kwargs={"enable_thinking": enable_thinking},
+                    template_kwargs={"enable_thinking": enable_thinking},
                 )
                 for row in batch_rows
             ]
             inputs = processor(
                 text=texts,
                 images=batch_images if any(batch_images) else None,
-                padding=True,
-                return_tensors="pt",
+                text_kwargs={"padding": True, "return_tensors": "pt"},
+                images_kwargs={},
             )
             device = next(model.parameters()).device
             inputs = {key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()}
