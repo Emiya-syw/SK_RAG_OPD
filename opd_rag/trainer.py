@@ -314,6 +314,26 @@ class OPDTrainer(Trainer):
                 advantage_clip=self.advantage_clip,
             )
 
+        # Track policy uncertainty and rollout length alongside the OPD loss.
+        # These diagnostics are detached and do not affect the training graph.
+        with torch.no_grad():
+            completion_mask = shifted_labels != -100
+            valid_tokens = completion_mask.sum().clamp_min(1)
+            student_log_probs = F.log_softmax(student_logits, dim=-1)
+            teacher_log_probs = F.log_softmax(teacher_logits, dim=-1)
+            student_entropy = -(student_log_probs.exp() * student_log_probs).sum(dim=-1)
+            teacher_entropy = -(teacher_log_probs.exp() * teacher_log_probs).sum(dim=-1)
+            student_entropy = student_entropy.masked_select(completion_mask).sum() / valid_tokens
+            teacher_entropy = teacher_entropy.masked_select(completion_mask).sum() / valid_tokens
+            completion_tokens = completion_mask.sum(dim=1).float().mean()
+            reached_max_tokens = (completion_mask.sum(dim=1) >= sampled_token_ids.shape[1]).float().mean()
+            self.log({
+                "student_entropy": student_entropy.item(),
+                "teacher_entropy": teacher_entropy.item(),
+                "completion_tokens": completion_tokens.item(),
+                "reached_max_tokens_ratio": reached_max_tokens.item(),
+            })
+
         if return_outputs:
             return loss, {"loss": loss}
         return loss
