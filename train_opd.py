@@ -47,6 +47,7 @@ class DataArguments:
     include_reference_answer: bool = True
     image_root: str | None = None
     teacher_prompt_mode: str = "student"
+    enable_thinking: bool = True
 
 
 @dataclass
@@ -170,6 +171,7 @@ def main() -> None:
                         "--seed", str(opd_args.validation_seed),
                         "--shard-index", str(shard_index), "--num-shards", str(len(devices)),
                         "--max-new-tokens", str(opd_args.validation_max_new_tokens),
+                        "--enable-thinking" if data_args.enable_thinking else "--no-enable-thinking",
                         "--dtype", model_args.torch_dtype,
                         "--attn-implementation", model_args.attn_implementation,
                     ]
@@ -200,7 +202,8 @@ def main() -> None:
         data_collator=OPDDataCollator(processor, data_args.max_prompt_length,
                                        data_args.include_reference_answer, data_args.image_root,
                                        data_args.max_image_pixels, teacher_processor=teacher_processor,
-                                       teacher_prompt_mode=data_args.teacher_prompt_mode), processor=processor,
+                                       teacher_prompt_mode=data_args.teacher_prompt_mode,
+                                       enable_thinking=data_args.enable_thinking), processor=processor,
         teacher_model=teacher_model,
         max_new_tokens=opd_args.max_new_tokens, temperature=opd_args.generation_temperature,
         top_p=opd_args.generation_top_p, top_k=opd_args.generation_top_k,

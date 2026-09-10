@@ -62,6 +62,12 @@ args=(
   --num-shards "${num_shards}"
 )
 
+if [[ "${ENABLE_THINKING:-true}" == "true" ]]; then
+  args+=(--enable-thinking)
+else
+  args+=(--no-enable-thinking)
+fi
+
 if [[ "${num_shards}" -gt 1 ]]; then
   args+=(--output-suffix ".rank${shard_index}of${num_shards}")
 fi

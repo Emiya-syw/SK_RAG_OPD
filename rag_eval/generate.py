@@ -142,6 +142,7 @@ def generate_dataset(
     batch_size: int = 1,
     shard_index: int = 0,
     num_shards: int = 1,
+    enable_thinking: bool = True,
 ) -> None:
     import torch
 
@@ -162,7 +163,8 @@ def generate_dataset(
         try:
             texts = [
                 processor.apply_chat_template(
-                    build_rag_messages(row), tokenize=False, add_generation_prompt=True
+                    build_rag_messages(row), tokenize=False, add_generation_prompt=True,
+                    enable_thinking=enable_thinking,
                 )
                 for row in batch_rows
             ]

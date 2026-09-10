@@ -12,6 +12,7 @@ validation_size="${VALIDATION_SIZE:-256}"
 validation_seed="${VALIDATION_SEED:-42}"
 validation_max_new_tokens="${VALIDATION_MAX_NEW_TOKENS:-512}"
 validation_gpus="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
+enable_thinking="${ENABLE_THINKING:-true}"
 # 训练/显存参数：batch、梯度累积、序列长度和 rollout 长度。
 # OPD 参数：loss_type、repetition_penalty；teacher_prompt_mode 控制 teacher 输入模式。
 "$python_bin" train_opd.py \
@@ -22,6 +23,7 @@ validation_gpus="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
   --gradient_checkpointing true \
   --validation_enabled "${validation_enabled}" \
   --teacher_prompt_mode "${TEACHER_PROMPT_MODE:-student}" \
+  --enable_thinking "${enable_thinking}" \
   --validation_test_file "${VALIDATION_TEST_FILE:-rag_eval/data/VLGuard/test_qwen3vl_embedding_top3.jsonl}" \
   --validation_sample_size "${validation_size}" \
   --validation_seed "${validation_seed}" \

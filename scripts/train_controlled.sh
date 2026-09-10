@@ -16,6 +16,7 @@ validation_size="${VALIDATION_SIZE:-256}"
 validation_seed="${VALIDATION_SEED:-42}"
 validation_max_new_tokens="${VALIDATION_MAX_NEW_TOKENS:-512}"
 validation_gpus="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
+enable_thinking="${ENABLE_THINKING:-true}"
 
 # 训练、长度、teacher prompt、验证和 LoRA 参数含义与 train_consistent.sh 相同。
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
@@ -50,6 +51,7 @@ fi
   --max_image_pixels "${MAX_IMAGE_PIXELS:-262144}" \
   --include_reference_answer true \
   --teacher_prompt_mode "${TEACHER_PROMPT_MODE:-student}" \
+  --enable_thinking "${enable_thinking}" \
   --validation_enabled "${validation_enabled}" \
   --validation_test_file "${VALIDATION_TEST_FILE:-rag_eval/data/VLGuard/test_qwen3vl_embedding_top3.jsonl}" \
   --validation_sample_size "${validation_size}" \

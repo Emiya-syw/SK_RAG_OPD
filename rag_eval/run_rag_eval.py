@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0, help="Test rows per dataset; 0 means all")
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--progress-every", type=int, default=20)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
@@ -130,6 +131,7 @@ def main() -> None:
             batch_size=args.generation_batch_size,
             shard_index=args.shard_index,
             num_shards=args.num_shards,
+            enable_thinking=args.enable_thinking,
         )
 
 

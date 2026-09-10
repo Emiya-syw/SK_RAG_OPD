@@ -16,6 +16,8 @@ python_bin="${PYTHON_BIN:-/opt/conda/envs/sk_rag_opd/bin/python}"
 checkpoint="${CHECKPOINT_PATH:?Set CHECKPOINT_PATH to a saved student checkpoint}"
 base_model="${BASE_MODEL:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking}"
 output="${VALIDATION_OUTPUT:-${checkpoint}/vlguard_validation.json}"
+thinking_flag="--enable-thinking"
+[[ "${ENABLE_THINKING:-true}" == true ]] || thinking_flag="--no-enable-thinking"
 
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" "${python_bin}" -m rag_eval.validate_opd \
   --enabled \
@@ -28,3 +30,4 @@ CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" "${python_bin}" -m rag_eval.va
   --max-new-tokens "${VALIDATION_MAX_NEW_TOKENS:-512}" \
   --max-image-pixels "${MAX_IMAGE_PIXELS:-262144}" \
   --dtype "${DTYPE:-bfloat16}"
+  "${thinking_flag}"

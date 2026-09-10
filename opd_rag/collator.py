@@ -71,6 +71,7 @@ class OPDDataCollator:
         max_image_pixels: int = 262144,
         teacher_processor=None,
         teacher_prompt_mode: str = "student",
+        enable_thinking: bool = True,
     ) -> None:
         self.processor = processor
         self.teacher_processor = teacher_processor or processor
@@ -79,6 +80,7 @@ class OPDDataCollator:
         self.include_reference_answer = include_reference_answer
         self.image_root = image_root
         self.max_image_pixels = max_image_pixels
+        self.enable_thinking = enable_thinking
         if teacher_prompt_mode not in {"student", "privileged"}:
             raise ValueError("teacher_prompt_mode must be 'student' or 'privileged'")
         self.teacher_prompt_mode = teacher_prompt_mode
@@ -295,6 +297,7 @@ class OPDDataCollator:
                     self._student_messages(question, examples),
                     tokenize=False,
                     add_generation_prompt=True,
+                    enable_thinking=self.enable_thinking,
                 )
             )
             teacher_texts.append(
@@ -302,6 +305,7 @@ class OPDDataCollator:
                     self._teacher_messages(question, examples, answer, demonstration),
                     tokenize=False,
                     add_generation_prompt=True,
+                    enable_thinking=self.enable_thinking,
                 )
             )
             student_images.append([image, *retrieved_images])

@@ -54,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-image-pixels", type=int, default=262144)
     parser.add_argument("--dtype", choices=("auto", "bfloat16", "float16", "float32"), default="bfloat16")
     parser.add_argument("--attn-implementation", default="eager")
+    parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args()
 
 
@@ -135,7 +136,8 @@ def main() -> None:
         images = _open_all_images(row, args.max_image_pixels)
         try:
             text = processor.apply_chat_template(build_rag_messages(row), tokenize=False,
-                                                 add_generation_prompt=True)
+                                                 add_generation_prompt=True,
+                                                 enable_thinking=args.enable_thinking)
             inputs = processor(text=[text], images=[images], padding=True, return_tensors="pt")
             generation_inputs = {key: value.to(student_device) if hasattr(value, "to") else value
                                  for key, value in inputs.items()}
