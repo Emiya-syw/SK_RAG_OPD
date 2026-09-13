@@ -62,7 +62,7 @@ args=(
   --num-shards "${num_shards}"
 )
 
-if [[ "${ENABLE_THINKING:-true}" == "true" ]]; then
+if [[ "${ENABLE_THINKING:-false}" == "true" ]]; then
   args+=(--enable-thinking)
 else
   args+=(--no-enable-thinking)

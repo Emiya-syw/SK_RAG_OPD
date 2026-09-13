@@ -12,7 +12,7 @@ from rag_eval.data import DEFAULT_DATA_ROOT, select_datasets, validate_pair
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EMBEDDING_REPO = Path("/home/sunyw/Qwen3-VL-Embedding")
 DEFAULT_EMBEDDING_MODEL = DEFAULT_EMBEDDING_REPO / "models/Qwen3-VL-Embedding-2B"
-DEFAULT_BASE_MODEL = Path("/home/sunyw/SK_RAG/models/Qwen3-VL-2B-Instruct")
+DEFAULT_BASE_MODEL = ROOT / "models/Qwen3-VL-2B-Thinking"
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0, help="Test rows per dataset; 0 means all")
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--progress-every", type=int, default=20)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)

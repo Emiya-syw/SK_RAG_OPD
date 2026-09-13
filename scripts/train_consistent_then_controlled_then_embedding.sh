@@ -24,31 +24,28 @@ controlled_output="${5:-${controlled_output}}"
 embedding_output="${6:-${embedding_output}}"
 script_dir="$(dirname "${BASH_SOURCE[0]}")"
 
-# 三阶段共享 loss、teacher prompt 和验证配置，并自动传递给子脚本。
-export LOSS_TYPE="${LOSS_TYPE:-reverse_kl}"
-export TEACHER_PROMPT_MODE="${TEACHER_PROMPT_MODE:-student}"
-export VALIDATION_ENABLED="${VALIDATION_ENABLED:-false}"
-export VALIDATION_SIZE="${VALIDATION_SIZE:-256}"
-export VALIDATION_SEED="${VALIDATION_SEED:-42}"
-export VALIDATION_MAX_NEW_TOKENS="${VALIDATION_MAX_NEW_TOKENS:-512}"
-export VALIDATION_CUDA_VISIBLE_DEVICES="${VALIDATION_CUDA_VISIBLE_DEVICES:-0,1}"
+# 三阶段共享 veRL distillation 配置，并通过导出的 PEFT adapter 接续训练。
+export DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
+export USE_POLICY_GRADIENT="${USE_POLICY_GRADIENT:-False}"
 
 echo "[1/3] Training on category-consistent data"
 if [[ -n "${CONSISTENT_INIT_PATH:-}" ]]; then
   [[ -d "${CONSISTENT_INIT_PATH}" ]] || { echo "CONSISTENT_INIT_PATH does not exist: ${CONSISTENT_INIT_PATH}" >&2; exit 1; }
-  consistent_output="${CONSISTENT_INIT_PATH}"
-  echo "Using existing consistent LoRA weights: ${consistent_output}"
+  consistent_adapter="${CONSISTENT_INIT_PATH}"
+  echo "Using existing consistent LoRA adapter: ${consistent_adapter}"
 else
   "${script_dir}/train_consistent.sh" \
     "${consistent_file}" "${consistent_output}"
+  consistent_adapter="$("${script_dir}/latest_adapter.sh" "${consistent_output}")"
 fi
 
 echo "[2/3] Continuing from the consistent LoRA adapter on controlled data"
-LORA_INIT_PATH="${consistent_output}" \
+LORA_INIT_PATH="${consistent_adapter}" \
   "${script_dir}/train_controlled.sh" \
   "${controlled_file}" "${controlled_output}"
+controlled_adapter="$("${script_dir}/latest_adapter.sh" "${controlled_output}")"
 
 echo "[3/3] Continuing from the controlled LoRA adapter on embedding-retrieval data"
-LORA_INIT_PATH="${controlled_output}" \
+LORA_INIT_PATH="${controlled_adapter}" \
   "${script_dir}/train_embedding.sh" \
   "${embedding_file}" "${embedding_output}"

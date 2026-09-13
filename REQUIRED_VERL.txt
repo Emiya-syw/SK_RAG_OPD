@@ -1,0 +1,3 @@
+VERL_REPO=https://github.com/verl-project/verl.git
+VERL_COMMIT=10db40d0da4d59150bb389960b77585f81a89b8d
+PIP_INSTALL=pip install 'verl[fsdp,vllm] @ git+https://github.com/verl-project/verl.git@10db40d0da4d59150bb389960b77585f81a89b8d'

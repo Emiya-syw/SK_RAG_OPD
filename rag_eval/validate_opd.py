@@ -12,6 +12,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
+from opd_rag.thinking import chat_template_kwargs
 from rag_eval.data import read_jsonl
 from rag_eval.generate import (
     _open_all_images,
@@ -54,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-image-pixels", type=int, default=262144)
     parser.add_argument("--dtype", choices=("auto", "bfloat16", "float16", "float32"), default="bfloat16")
     parser.add_argument("--attn-implementation", default="eager")
-    parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=False)
     return parser.parse_args()
 
 
@@ -137,7 +138,7 @@ def main() -> None:
         try:
             text = processor.apply_chat_template(build_rag_messages(row), tokenize=False,
                                                  add_generation_prompt=True,
-                                                 template_kwargs={"enable_thinking": args.enable_thinking})
+                                                 **chat_template_kwargs(args.enable_thinking))
             inputs = processor(
                 text=[text],
                 images=[images],

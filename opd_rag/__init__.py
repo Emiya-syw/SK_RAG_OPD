@@ -1,6 +1,5 @@
-"""On-policy distillation (OPD) for retrieval-augmented vision-language models."""
+"""SK-RAG data integration for veRL's native on-policy distillation trainer."""
 
-from .trainer import OPDTrainer
-from .collator import OPDDataCollator
+from .verl_data import build_prompt, convert_record, convert_records, iter_jsonl
 
-__all__ = ["OPDTrainer", "OPDDataCollator"]
+__all__ = ["build_prompt", "convert_record", "convert_records", "iter_jsonl"]

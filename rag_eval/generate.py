@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from opd_rag.thinking import chat_template_kwargs
 from rag_eval.data import read_jsonl, write_jsonl
 
 
@@ -142,7 +143,7 @@ def generate_dataset(
     batch_size: int = 1,
     shard_index: int = 0,
     num_shards: int = 1,
-    enable_thinking: bool = True,
+    enable_thinking: bool = False,
 ) -> None:
     import torch
 
@@ -164,7 +165,7 @@ def generate_dataset(
             texts = [
                 processor.apply_chat_template(
                     build_rag_messages(row), tokenize=False, add_generation_prompt=True,
-                    template_kwargs={"enable_thinking": enable_thinking},
+                    **chat_template_kwargs(enable_thinking),
                 )
                 for row in batch_rows
             ]

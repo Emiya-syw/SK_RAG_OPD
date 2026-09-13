@@ -1,0 +1,6 @@
+# veRL main includes the native multimodal OPD pipeline used by this project.
+# Pin the tested API surface instead of tracking a moving branch.
+verl[fsdp,vllm] @ git+https://github.com/verl-project/verl.git@10db40d0da4d59150bb389960b77585f81a89b8d
+qwen-vl-utils
+datasets
+pyarrow
