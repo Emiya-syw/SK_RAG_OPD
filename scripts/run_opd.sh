@@ -310,7 +310,7 @@ if ! runtime_import_error="$("${PYTHON_BIN}" -c \
   'import pandas, datasets, ray, hydra, vllm, transfer_queue; import verl.trainer.main_ppo' 2>&1)"; then
   printf 'veRL runtime import failed in %s:\n%s\n\n' "${PYTHON_BIN}" "${runtime_import_error}" >&2
   printf 'Repair the pinned runtime with:\n  %q -m pip install --no-cache-dir -r %q\n' \
-    "${PYTHON_BIN}" "${PROJECT_ROOT}/requirements-verl.txt" >&2
+    "${PYTHON_BIN}" "${project_root}/requirements-verl.txt" >&2
   printf 'If pandas itself is corrupted, reinstall it first with:\n  %q -m pip install --no-cache-dir --force-reinstall --no-deps pandas==2.2.3\n' \
     "${PYTHON_BIN}" >&2
   printf 'Then verify it with:\n  %q -c %q\n' "${PYTHON_BIN}" \
