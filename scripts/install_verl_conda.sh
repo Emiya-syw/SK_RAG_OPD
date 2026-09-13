@@ -26,11 +26,14 @@ fi
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 verl_source_dir="${VERL_SOURCE_DIR:-$(dirname "${project_root}")/verl-runtime}"
+uv_cache_dir="${UV_CACHE_DIR:-$(dirname "${project_root}")/.cache/uv-sk-rag-opd}"
+mkdir -p "${uv_cache_dir}"
 
 echo "Conda environment : ${CONDA_PREFIX}"
 echo "Python            : $("${python_bin}" --version 2>&1)"
 echo "veRL source       : ${verl_source_dir}"
 echo "veRL commit       : ${VERL_COMMIT}"
+echo "uv cache          : ${uv_cache_dir}"
 
 if ! "${python_bin}" -m pip --version >/dev/null 2>&1; then
   conda install -y --prefix "${CONDA_PREFIX}" pip
@@ -51,6 +54,7 @@ git -C "${verl_source_dir}" checkout --detach "${VERL_COMMIT}"
 
 # Point project sync at the active Conda prefix. --inexact preserves Conda's
 # management packages while installing the locked veRL backend versions.
+UV_CACHE_DIR="${uv_cache_dir}" \
 UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
   "${CONDA_PREFIX}/bin/uv" sync \
     --project "${verl_source_dir}" \
