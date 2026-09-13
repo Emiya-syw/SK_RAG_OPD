@@ -57,6 +57,9 @@ python scripts/prepare_verl_data.py \
 所有当前配方使用的训练参数都集中在 `scripts/run_opd.sh` 顶部的“训练参数配置区”。
 每个参数旁边标明了默认值、可选值或范围以及对训练的作用。可以直接修改脚本默认值，
 也可以用同名环境变量临时覆盖；命令行末尾仍可追加任意高级 veRL/Hydra override。
+启动 veRL 前会打印最终生效配置，并默认保存为当前阶段输出目录中的
+`training_config.txt`。可通过 `PRINT_TRAIN_CONFIG=false` 关闭终端打印、
+`SAVE_TRAIN_CONFIG=false` 关闭保存，或用 `TRAIN_CONFIG_FILE` 更改保存路径。
 
 单阶段训练会先转换原始数据，然后启动 veRL：
 

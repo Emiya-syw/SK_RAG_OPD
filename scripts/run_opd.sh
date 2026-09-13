@@ -207,6 +207,12 @@ LOG_VAL_GENERATIONS="${LOG_VAL_GENERATIONS:-0}"
 ROLLOUT_DATA_DIR="${ROLLOUT_DATA_DIR:-}"
 # 验证生成文本落盘目录。空字符串关闭；必须同时令 TEST_FREQ>0 才会产生文件。
 VALIDATION_DATA_DIR="${VALIDATION_DATA_DIR:-}"
+# 启动 veRL 前是否在终端打印最终训练配置。可选：true/false。
+PRINT_TRAIN_CONFIG="${PRINT_TRAIN_CONFIG:-true}"
+# 是否把最终训练配置保存到文件。可选：true/false。
+SAVE_TRAIN_CONFIG="${SAVE_TRAIN_CONFIG:-true}"
+# 配置保存路径。默认写入当前训练输出目录；可指定任意文本文件路径。
+TRAIN_CONFIG_FILE="${TRAIN_CONFIG_FILE:-${output_dir}/training_config.txt}"
 # 日志项目名。
 PROJECT_NAME="${PROJECT_NAME:-sk_rag_opd}"
 # 实验名；阶段脚本会分别设为 consistent/controlled/embedding。
@@ -229,6 +235,75 @@ teacher_replicas="${TEACHER_NUM_REPLICAS:-$((TEACHER_GPUS_PER_NODE / TEACHER_TP)
 val_file="${VAL_FILE:-${train_file}}"
 rollout_data_dir="${ROLLOUT_DATA_DIR:-null}"
 validation_data_dir="${VALIDATION_DATA_DIR:-null}"
+
+render_config_group() {
+  local title="$1"
+  shift
+  printf '\n[%s]\n' "${title}"
+  local config_name
+  for config_name in "$@"; do
+    printf '%-38s = %q\n' "${config_name}" "${!config_name}"
+  done
+}
+
+render_training_config() {
+  printf 'SK-RAG-OPD resolved training configuration\n'
+  printf 'generated_at                           = %q\n' "$(date --iso-8601=seconds)"
+  printf 'git_commit                             = %q\n' "$(git rev-parse --short HEAD 2>/dev/null || printf unknown)"
+  printf 'TRAIN_FILE                             = %q\n' "${train_file}"
+  printf 'OUTPUT_DIR                             = %q\n' "${output_dir}"
+  printf 'EFFECTIVE_VAL_FILE                     = %q\n' "${val_file}"
+  printf 'EFFECTIVE_TEACHER_NUM_REPLICAS         = %q\n' "${teacher_replicas}"
+
+  render_config_group "runtime_and_models" \
+    PYTHON_BIN MODEL_PATH TEACHER_MODEL_PATH LORA_INIT_PATH ENABLE_THINKING \
+    THINKING_OFF_TEMPLATE TRUST_REMOTE_CODE
+  render_config_group "data_and_lengths" \
+    VAL_FILE TRAIN_BATCH_SIZE MAX_PROMPT_LENGTH MAX_RESPONSE_LENGTH MAX_MODEL_LEN \
+    MAX_IMAGE_PIXELS FILTER_OVERLONG_PROMPTS TRUNCATION IMAGE_KEY \
+    RETURN_MULTI_MODAL_INPUTS DATA_SHUFFLE SEED
+  render_config_group "lora_and_student" \
+    LORA_RANK LORA_ALPHA LORA_TARGET_MODULES USE_REMOVE_PADDING \
+    ENABLE_GRADIENT_CHECKPOINTING FREEZE_VISION_TOWER
+  render_config_group "optimizer_and_actor" \
+    LR WEIGHT_DECAY LR_WARMUP_STEPS_RATIO LR_SCHEDULER_TYPE CLIP_GRAD \
+    PPO_MINI_BATCH_SIZE MICRO_BATCH_SIZE USE_DYNAMIC_BSZ MAX_TOKEN_LEN_PER_GPU \
+    PPO_EPOCHS LOSS_AGG_MODE
+  render_config_group "fsdp_and_memory" \
+    PARAM_OFFLOAD OPTIMIZER_OFFLOAD RESHARD_AFTER_FORWARD USE_TORCH_COMPILE
+  render_config_group "student_rollout" \
+    ROLLOUT_BACKEND ROLLOUT_LOAD_FORMAT ROLLOUT_TP ROLLOUT_GPU_MEMORY_UTILIZATION \
+    GENERATION_TEMPERATURE GENERATION_TOP_P GENERATION_TOP_K ROLLOUT_N \
+    ROLLOUT_IGNORE_EOS ROLLOUT_ENFORCE_EAGER ROLLOUT_MAX_NUM_BATCHED_TOKENS \
+    ROLLOUT_MAX_NUM_SEQS ROLLOUT_ENABLE_CHUNKED_PREFILL ROLLOUT_ENABLE_PREFIX_CACHING
+  render_config_group "teacher_and_distillation" \
+    DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK \
+    DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT LOSS_MAX_CLAMP \
+    LOG_PROB_MIN_CLAMP USE_CHUNKED_TOPK CHUNKED_TOPK_CHUNK_SIZE \
+    DISTILLATION_POLICY_LOSS_MODE DISTILLATION_CLIP_RATIO TEACHER_TP \
+    TEACHER_GPU_MEMORY_UTILIZATION TEACHER_MAX_NUM_SEQS TEACHER_LOAD_FORMAT \
+    TEACHER_ENFORCE_EAGER TEACHER_NUM_REPLICAS
+  render_config_group "distributed_logging_and_checkpoints" \
+    TRAINER_GPUS_PER_NODE TEACHER_GPUS_PER_NODE NNODES TEACHER_NNODES \
+    BALANCE_BATCH EPOCHS TOTAL_TRAINING_STEPS SAVE_FREQ MAX_ACTOR_CKPT_TO_KEEP \
+    TEST_FREQ VAL_BEFORE_TRAIN RESUME_MODE RESUME_FROM_PATH TRAINER_LOGGER \
+    LOG_VAL_GENERATIONS ROLLOUT_DATA_DIR VALIDATION_DATA_DIR PRINT_TRAIN_CONFIG \
+    SAVE_TRAIN_CONFIG TRAIN_CONFIG_FILE PROJECT_NAME EXPERIMENT_NAME
+  render_config_group "algorithm_and_reward" \
+    ADV_ESTIMATOR USE_KL_IN_REWARD REWARD_FUNCTION_PATH REWARD_FUNCTION_NAME
+
+  printf '\n[extra_hydra_overrides]\n'
+  if (( $# == 0 )); then
+    printf '(none)\n'
+  else
+    local override_index=0
+    local override
+    for override in "$@"; do
+      printf 'override_%03d                           = %q\n' "${override_index}" "${override}"
+      override_index=$((override_index + 1))
+    done
+  fi
+}
 
 [[ -f "${train_file}" ]] || { echo "veRL dataset does not exist: ${train_file}" >&2; exit 2; }
 if ! "${PYTHON_BIN}" -c 'import verl, ray, hydra' >/dev/null 2>&1; then
@@ -267,6 +342,18 @@ trainer_args=(
 )
 if [[ -n "${RESUME_FROM_PATH}" ]]; then
   trainer_args+=("trainer.resume_from_path=${RESUME_FROM_PATH}")
+fi
+
+resolved_training_config="$(render_training_config "$@")"
+if [[ "${SAVE_TRAIN_CONFIG}" == "true" ]]; then
+  mkdir -p "$(dirname "${TRAIN_CONFIG_FILE}")"
+  printf '%s\n' "${resolved_training_config}" > "${TRAIN_CONFIG_FILE}"
+fi
+if [[ "${PRINT_TRAIN_CONFIG}" == "true" ]]; then
+  printf '\n%s\n' "${resolved_training_config}"
+  if [[ "${SAVE_TRAIN_CONFIG}" == "true" ]]; then
+    printf '\nTraining configuration saved to %s\n\n' "${TRAIN_CONFIG_FILE}"
+  fi
 fi
 
 exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
