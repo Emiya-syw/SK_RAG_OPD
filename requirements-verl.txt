@@ -8,4 +8,6 @@ vllm==0.24.0
 qwen-vl-utils
 datasets
 pandas==2.2.3
+# TransferQueue's pyvers dependency is currently incompatible with packaging 26.
+packaging>=25,<26
 pyarrow
