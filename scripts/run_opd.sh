@@ -327,6 +327,7 @@ model_args=(
   "actor_rollout_ref.model.lora_alpha=${LORA_ALPHA}"
   "actor_rollout_ref.model.target_modules=${LORA_TARGET_MODULES}"
 )
+chat_template_args=()
 if [[ "${ENABLE_THINKING}" != "true" ]]; then
   [[ -f "${THINKING_OFF_TEMPLATE}" ]] || {
     echo "thinking-off chat template does not exist: ${THINKING_OFF_TEMPLATE}" >&2
@@ -335,6 +336,11 @@ if [[ "${ENABLE_THINKING}" != "true" ]]; then
   export OPD_CHAT_TEMPLATE
   OPD_CHAT_TEMPLATE="$(<"${THINKING_OFF_TEMPLATE}")"
   model_args+=('actor_rollout_ref.model.custom_chat_template=${oc.env:OPD_CHAT_TEMPLATE}')
+else
+  # The native Qwen template consumes this variable. The thinking-off custom
+  # template already fixes the empty think block and must not receive it:
+  # transformers 5 warns once per sample for unused processor kwargs.
+  chat_template_args+=("+data.apply_chat_template_kwargs.enable_thinking=true")
 fi
 if [[ -n "${LORA_INIT_PATH}" ]]; then
   [[ -f "${LORA_INIT_PATH}/adapter_config.json" ]] || {
@@ -379,7 +385,7 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "data.return_multi_modal_inputs=${RETURN_MULTI_MODAL_INPUTS}" \
   "data.shuffle=${DATA_SHUFFLE}" \
   "data.seed=${SEED}" \
-  "+data.apply_chat_template_kwargs.enable_thinking=${ENABLE_THINKING}" \
+  "${chat_template_args[@]}" \
   "+data.mm_processor_kwargs.max_pixels=${MAX_IMAGE_PIXELS}" \
   "${model_args[@]}" \
   "actor_rollout_ref.actor.optim.lr=${LR}" \
