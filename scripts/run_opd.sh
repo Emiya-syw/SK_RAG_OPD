@@ -45,6 +45,8 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH + 1))
 MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-262144}"
 # 是否过滤过长样本。可选：true/false；true 会在训练前移除超长 prompt。
 FILTER_OVERLONG_PROMPTS="${FILTER_OVERLONG_PROMPTS:-true}"
+# 过滤 prompt 长度时使用的 CPU 进程数。正整数；多模态数据建议 4-8，过大会增加内存占用。
+FILTER_OVERLONG_PROMPTS_WORKERS="${FILTER_OVERLONG_PROMPTS_WORKERS:-8}"
 # 超长后的截断策略。可选：error、left、right、middle；推荐配合过滤使用 error，避免静默截断图像上下文。
 TRUNCATION="${TRUNCATION:-error}"
 # 数据中的图像字段名。应与 prepare_verl_data.py 输出一致。
@@ -260,7 +262,7 @@ render_training_config() {
     THINKING_OFF_TEMPLATE TRUST_REMOTE_CODE
   render_config_group "data_and_lengths" \
     VAL_FILE TRAIN_BATCH_SIZE MAX_PROMPT_LENGTH MAX_RESPONSE_LENGTH MAX_MODEL_LEN \
-    MAX_IMAGE_PIXELS FILTER_OVERLONG_PROMPTS TRUNCATION IMAGE_KEY \
+    MAX_IMAGE_PIXELS FILTER_OVERLONG_PROMPTS FILTER_OVERLONG_PROMPTS_WORKERS TRUNCATION IMAGE_KEY \
     RETURN_MULTI_MODAL_INPUTS DATA_SHUFFLE SEED
   render_config_group "lora_and_student" \
     LORA_RANK LORA_ALPHA LORA_TARGET_MODULES USE_REMOVE_PADDING \
@@ -380,6 +382,7 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "data.max_prompt_length=${MAX_PROMPT_LENGTH}" \
   "data.max_response_length=${MAX_RESPONSE_LENGTH}" \
   "data.filter_overlong_prompts=${FILTER_OVERLONG_PROMPTS}" \
+  "data.filter_overlong_prompts_workers=${FILTER_OVERLONG_PROMPTS_WORKERS}" \
   "data.truncation=${TRUNCATION}" \
   "data.image_key=${IMAGE_KEY}" \
   "data.return_multi_modal_inputs=${RETURN_MULTI_MODAL_INPUTS}" \
