@@ -29,6 +29,8 @@ ENABLE_THINKING="${ENABLE_THINKING:-false}"
 THINKING_OFF_TEMPLATE="${THINKING_OFF_TEMPLATE:-${project_root}/opd_rag/chat_templates/qwen3_vl_thinking_off.jinja}"
 # 是否允许模型仓库自定义代码。可选：true/false；Qwen 自定义实现通常设 true。
 TRUST_REMOTE_CODE="${TRUST_REMOTE_CODE:-true}"
+# student FSDP 注意力实现。可选：sdpa（无需额外依赖，推荐）、flash_attention_2（需安装 flash-attn）、eager（最慢）。
+ATTN_IMPLEMENTATION="${ATTN_IMPLEMENTATION:-sdpa}"
 
 # --- 数据与长度 ---------------------------------------------------------------
 # 验证集。可选：空字符串（复用训练集）或 veRL JSONL/Parquet 路径。
@@ -259,7 +261,7 @@ render_training_config() {
 
   render_config_group "runtime_and_models" \
     PYTHON_BIN MODEL_PATH TEACHER_MODEL_PATH LORA_INIT_PATH ENABLE_THINKING \
-    THINKING_OFF_TEMPLATE TRUST_REMOTE_CODE
+    THINKING_OFF_TEMPLATE TRUST_REMOTE_CODE ATTN_IMPLEMENTATION
   render_config_group "data_and_lengths" \
     VAL_FILE TRAIN_BATCH_SIZE MAX_PROMPT_LENGTH MAX_RESPONSE_LENGTH MAX_MODEL_LEN \
     MAX_IMAGE_PIXELS FILTER_OVERLONG_PROMPTS FILTER_OVERLONG_PROMPTS_WORKERS TRUNCATION IMAGE_KEY \
@@ -328,6 +330,7 @@ model_args=(
   "actor_rollout_ref.model.lora_rank=${LORA_RANK}"
   "actor_rollout_ref.model.lora_alpha=${LORA_ALPHA}"
   "actor_rollout_ref.model.target_modules=${LORA_TARGET_MODULES}"
+  "+actor_rollout_ref.model.override_config.attn_implementation=${ATTN_IMPLEMENTATION}"
 )
 chat_template_args=()
 if [[ "${ENABLE_THINKING}" != "true" ]]; then
