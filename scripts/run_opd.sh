@@ -45,8 +45,8 @@ MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-${MAX_NEW_TOKENS:-2048}}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH + 1))}"
 # 单张图像最大像素数。正整数；降低可减少视觉 token 和显存，可能损失细节。
 MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-262144}"
-# 是否过滤过长样本。可选：true/false；true 会在训练前移除超长 prompt。
-FILTER_OVERLONG_PROMPTS="${FILTER_OVERLONG_PROMPTS:-true}"
+# 是否过滤过长样本。可选：false（推荐，避免在 Ray worker 内嵌套多进程）、true（训练前逐图计算并过滤）。
+FILTER_OVERLONG_PROMPTS="${FILTER_OVERLONG_PROMPTS:-false}"
 # 过滤 prompt 长度时使用的 CPU 进程数。正整数；多模态数据建议 4-8，过大会增加内存占用。
 FILTER_OVERLONG_PROMPTS_WORKERS="${FILTER_OVERLONG_PROMPTS_WORKERS:-8}"
 # 超长后的截断策略。可选：error、left、right、middle；推荐配合过滤使用 error，避免静默截断图像上下文。
