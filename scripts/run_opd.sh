@@ -114,6 +114,8 @@ ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-vllm}"
 # vLLM 注意力后端。A100/4090 推荐 FLASH_ATTN；可选：FLASH_ATTN、FLASHINFER、TRITON_ATTN、FLEX_ATTENTION。
 # 该值通过 rollout/teacher 的 engine_kwargs 传给 vLLM，避免自动加载未完整安装的可选 FlashInfer cubin 包。
 VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-FLASH_ATTN}"
+# vLLM 0.24 会警告同名旧环境变量；配置值仅通过下方 engine_kwargs 传递。
+export -n VLLM_ATTENTION_BACKEND
 # 权重加载格式。常用：safetensors、auto；safetensors 与当前 Qwen 权重匹配。
 ROLLOUT_LOAD_FORMAT="${ROLLOUT_LOAD_FORMAT:-safetensors}"
 # rollout tensor parallel 数。正整数且不能超过 student GPU 数；模型放不下时增大。
