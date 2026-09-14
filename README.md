@@ -69,6 +69,15 @@ bash scripts/train_controlled.sh
 bash scripts/train_embedding.sh
 ```
 
+`train_consistent.sh` 在交互式终端中启动时会询问权重保存目录名，例如输入
+`consistent_full` 后，checkpoint 和 `training_config.txt` 会保存到
+`outputs/consistent_full/`。直接回车则使用 `YYYY-MM-DD_HH-MM` 作为目录名。
+脚本参数 `$2` 仍可用于非交互式运行时显式指定输出目录：
+
+```bash
+bash scripts/train_consistent.sh data/category_consistent.jsonl outputs/consistent_full
+```
+
 也可直接训练已转换的数据：
 
 ```bash
