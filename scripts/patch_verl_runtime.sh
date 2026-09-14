@@ -6,6 +6,7 @@ verl_source_dir="${VERL_SOURCE_DIR:-$(dirname "${project_root}")/verl-runtime}"
 patch_files=(
   "${project_root}/patches/verl-qwen3-vl-opd-teacher-alignment.patch"
   "${project_root}/patches/verl-opd-synthetic-padding-teacher-fields.patch"
+  "${project_root}/patches/verl-opd-jagged-teacher-padding.patch"
 )
 
 if [[ ! -d "${verl_source_dir}/.git" ]]; then
@@ -32,4 +33,5 @@ fi
 "${python_bin}" -m py_compile \
   "${verl_source_dir}/verl/experimental/agent_loop/agent_loop.py" \
   "${verl_source_dir}/verl/experimental/teacher_loop/teacher_manager.py" \
-  "${verl_source_dir}/verl/trainer/ppo/padding_utils.py"
+  "${verl_source_dir}/verl/trainer/ppo/padding_utils.py" \
+  "${verl_source_dir}/verl/workers/utils/padding.py"

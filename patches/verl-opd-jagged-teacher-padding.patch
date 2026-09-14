@@ -1,0 +1,61 @@
+diff --git a/verl/workers/utils/padding.py b/verl/workers/utils/padding.py
+index f45d74af..6d396269 100644
+--- a/verl/workers/utils/padding.py
++++ b/verl/workers/utils/padding.py
+@@ -78,16 +78,51 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
+         )
+         data["routed_experts"] = routed_experts_nested
+ 
+-    # (bsz, seqlen, topk)
++    # (bsz, seqlen, topk). TransferQueue may return these fields as jagged
++    # tensors when trajectories originated from rollout batches with different
++    # padded widths. Flattening a jagged field and indexing it with offsets from
++    # the rectangular input_ids tensor corrupts the packed sequence length.
+     teacher_logprobs = data.get("teacher_logprobs", None)
+     teacher_ids = data.get("teacher_ids", None)
+     if teacher_logprobs is not None and teacher_ids is not None:
+-        teacher_logprobs_rmpad = index_first_axis(teacher_logprobs.unsqueeze(-1).flatten(0, 1), indices)
+-        teacher_ids_rmpad = index_first_axis(teacher_ids.unsqueeze(-1).flatten(0, 1), indices)
++        prompt_width = data["prompts"].shape[1]
++        response_width = data["responses"].shape[1]
++        prompt_lens = attention_mask[:, :prompt_width].sum(dim=1).tolist()
++        response_lens = attention_mask[:, prompt_width:].sum(dim=1).tolist()
++
++        def _remove_teacher_padding(tensor: torch.Tensor) -> torch.Tensor:
++            rows = tensor.unbind(0)
++            if len(rows) != len(prompt_lens):
++                raise ValueError(
++                    f"Teacher tensor batch size {len(rows)} does not match input batch size {len(prompt_lens)}"
++                )
++            valid_rows = []
++            for row_index, (row, prompt_len, response_len) in enumerate(
++                zip(rows, prompt_lens, response_lens, strict=True)
++            ):
++                sequence_len = prompt_len + response_len
++                stored_len = row.shape[0]
++                if stored_len == sequence_len:
++                    valid_rows.append(row)
++                    continue
++
++                left_prompt_padding = stored_len - response_width - prompt_len
++                valid_end = left_prompt_padding + sequence_len
++                if left_prompt_padding < 0 or valid_end > stored_len:
++                    raise ValueError(
++                        "Cannot align teacher tensor row with input lengths: "
++                        f"row={row_index}, stored={stored_len}, prompt={prompt_len}, "
++                        f"response={response_len}, response_width={response_width}"
++                    )
++                valid_rows.append(row[left_prompt_padding:valid_end])
++            return torch.cat(valid_rows, dim=0)
++
++        teacher_logprobs_rmpad = _remove_teacher_padding(teacher_logprobs)
++        teacher_ids_rmpad = _remove_teacher_padding(teacher_ids)
+         teacher_logprobs_nested = torch.nested.nested_tensor_from_jagged(
+-            teacher_logprobs_rmpad.squeeze(-1), offsets=cu_seqlens
++            teacher_logprobs_rmpad, offsets=cu_seqlens
+         )
+-        teacher_ids_nested = torch.nested.nested_tensor_from_jagged(teacher_ids_rmpad.squeeze(-1), offsets=cu_seqlens)
++        teacher_ids_nested = torch.nested.nested_tensor_from_jagged(teacher_ids_rmpad, offsets=cu_seqlens)
+         data["teacher_logprobs"] = teacher_logprobs_nested
+         data["teacher_ids"] = teacher_ids_nested
+ 

@@ -358,6 +358,18 @@ Apply all runtime patches, stop existing Ray workers, then rerun:
 EOF
   exit 2
 fi
+verl_worker_padding="$(dirname "$(dirname "$(dirname "${verl_teacher_manager}")")")/workers/utils/padding.py"
+if ! grep -q 'TransferQueue may return these fields as jagged' "${verl_worker_padding}"; then
+  cat >&2 <<EOF
+The active veRL runtime is missing the jagged teacher-tensor fix:
+  ${verl_worker_padding}
+
+Apply all runtime patches, stop existing Ray workers, then rerun:
+  VERL_SOURCE_DIR=$(dirname "$(dirname "$(dirname "$(dirname "${verl_teacher_manager}")")")") PYTHON_BIN=${PYTHON_BIN} bash ${project_root}/scripts/patch_verl_runtime.sh
+  ray stop --force
+EOF
+  exit 2
+fi
 
 model_args=(
   "actor_rollout_ref.model.path=${MODEL_PATH}"
