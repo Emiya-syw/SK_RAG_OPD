@@ -71,8 +71,8 @@ LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-all-linear}"
 USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-true}"
 # 梯度检查点。可选：true/false；true 节省显存但增加反向计算时间。
 ENABLE_GRADIENT_CHECKPOINTING="${ENABLE_GRADIENT_CHECKPOINTING:-true}"
-# 是否冻结视觉编码器。可选：false（训练视觉层）、true（只训练语言侧/LoRA，显存更低）。
-FREEZE_VISION_TOWER="${FREEZE_VISION_TOWER:-false}"
+# 是否冻结视觉编码器。可选：true（推荐；与 vLLM 多模态 LoRA 的语言骨干支持保持一致）、false（训练视觉 LoRA，但 rollout 可能忽略它）。
+FREEZE_VISION_TOWER="${FREEZE_VISION_TOWER:-true}"
 
 # --- 优化器与 actor 更新 ------------------------------------------------------
 # AdamW 学习率。正浮点数；LoRA 常用约 1e-6 到 1e-4，本项目默认 5e-6。
