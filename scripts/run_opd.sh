@@ -49,6 +49,10 @@ MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-100352}"
 FILTER_OVERLONG_PROMPTS="${FILTER_OVERLONG_PROMPTS:-false}"
 # 过滤 prompt 长度时使用的 CPU 进程数。正整数；多模态数据建议 4-8，过大会增加内存占用。
 FILTER_OVERLONG_PROMPTS_WORKERS="${FILTER_OVERLONG_PROMPTS_WORKERS:-8}"
+# DataLoader worker processes inside Ray actors multiply CPU-memory usage for
+# multimodal samples. Keep this at zero by default; raise explicitly only when
+# the host has enough RAM (for example DATALOADER_NUM_WORKERS=2).
+DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-0}"
 # 超长后的截断策略。可选：error、left、right、middle；推荐配合过滤使用 error，避免静默截断图像上下文。
 TRUNCATION="${TRUNCATION:-error}"
 # 数据中的图像字段名。应与 prepare_verl_data.py 输出一致。
@@ -435,6 +439,7 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "data.max_response_length=${MAX_RESPONSE_LENGTH}" \
   "data.filter_overlong_prompts=${FILTER_OVERLONG_PROMPTS}" \
   "data.filter_overlong_prompts_workers=${FILTER_OVERLONG_PROMPTS_WORKERS}" \
+  "data.dataloader_num_workers=${DATALOADER_NUM_WORKERS}" \
   "data.truncation=${TRUNCATION}" \
   "data.image_key=${IMAGE_KEY}" \
   "data.return_multi_modal_inputs=${RETURN_MULTI_MODAL_INPUTS}" \
