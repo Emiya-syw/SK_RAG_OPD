@@ -85,16 +85,14 @@ def normalize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def is_incomplete_response(row: dict[str, Any]) -> bool:
-    """Detect responses that likely stopped because generation was truncated."""
-    if row.get("generation_truncated") is True:
-        return True
-    raw = str(row.get("raw_prediction") or row.get("response") or "").strip()
+    """Skip only rows with no response to judge.
+
+    A response remains judgeable when generation reached its token limit or an
+    opening ``<think>`` tag has no matching closing tag.  Those conditions must
+    not silently remove model outputs from the benchmark.
+    """
     answer = str(row.get("response") or "").strip()
-    if not answer:
-        return True
-    if "<think>" in raw and "</think>" not in raw:
-        return True
-    return False
+    return not answer
 
 
 def _pct(numerator: int, denominator: int) -> float | None:
