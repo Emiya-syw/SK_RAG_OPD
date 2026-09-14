@@ -52,6 +52,12 @@ else
 fi
 git -C "${verl_source_dir}" checkout --detach "${VERL_COMMIT}"
 
+# Qwen3-VL may expand visual placeholder runs to a different prompt width in
+# vLLM than in the agent-loop HF processor. Preserve and verify the response
+# suffix before aligning teacher logprobs to the student tensor width.
+VERL_SOURCE_DIR="${verl_source_dir}" PYTHON_BIN="${python_bin}" \
+  "${project_root}/scripts/patch_verl_runtime.sh"
+
 # Point project sync at the active Conda prefix. --inexact preserves Conda's
 # management packages while installing the locked veRL backend versions.
 UV_CACHE_DIR="${uv_cache_dir}" \

@@ -107,6 +107,9 @@ bash scripts/train_consistent.sh
 OPD teacher 依赖 vLLM 为完整的 student 序列返回逐 token
 `prompt_logprobs`，因此脚本默认关闭 teacher 的 prefix cache。多图训练默认把
 单图限制为 131072 像素，防止所有图片累积后的视觉 token 超过 prompt 上限。
+固定的 veRL 版本还需要应用 Qwen3-VL teacher 响应后缀对齐补丁；完整安装脚本
+会自动应用。已有环境可直接执行 `bash scripts/patch_verl_runtime.sh`，无需重新
+安装 Python/CUDA 依赖。
 
 额外的 veRL/Hydra override 可附加到 `run_opd.sh`：
 
