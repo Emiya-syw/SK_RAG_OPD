@@ -37,8 +37,8 @@ ATTN_IMPLEMENTATION="${ATTN_IMPLEMENTATION:-sdpa}"
 VAL_FILE="${VAL_FILE:-}"
 # 一次 rollout 的全局 prompt 数。正整数；增大会提高吞吐并增加显存/等待时间。
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
-# prompt 最大 token 数。超过后由 FILTER_OVERLONG_PROMPTS/TRUNCATION 处理。
-MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-4096}"
+# prompt 最大 token 数。consistent 多图样本推荐 8192；超过后由 FILTER_OVERLONG_PROMPTS/TRUNCATION 处理。
+MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-8192}"
 # response 最大 token 数。正整数；越大越耗 rollout 显存和 teacher 评分时间。MAX_NEW_TOKENS 是兼容别名。
 MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-${MAX_NEW_TOKENS:-2048}}"
 # vLLM 总上下文长度。默认 prompt + response + 1；可设更大，但显存占用会上升。
