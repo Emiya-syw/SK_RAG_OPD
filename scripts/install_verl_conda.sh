@@ -64,14 +64,23 @@ UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
     --frozen \
     --inexact
 
-# A sync interrupted by a full disk can leave SymPy's dist-info present while
-# package files are incomplete. It is small, ABI-independent, and imported by
-# torch._dynamo through TensorDict, so always replace it from the locked version.
-UV_CACHE_DIR="${uv_cache_dir}" \
-  "${CONDA_PREFIX}/bin/uv" pip install \
-    --python "${python_bin}" \
-    --reinstall \
-    "sympy==1.14.0"
+# A sync interrupted by a full disk can leave dist-info present while package
+# files are incomplete. Repair the two packages observed on the critical import
+# path from the lock file, but avoid reinstalling them on a healthy environment.
+if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM' >/dev/null 2>&1; then
+  echo "Repairing incomplete SymPy/vLLM package files..."
+  UV_CACHE_DIR="${uv_cache_dir}" \
+  UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
+    "${CONDA_PREFIX}/bin/uv" sync \
+      --project "${verl_source_dir}" \
+      --python "${python_bin}" \
+      --extra fsdp \
+      --extra vllm \
+      --frozen \
+      --inexact \
+      --reinstall-package sympy \
+      --reinstall-package vllm
+fi
 
 "${python_bin}" - <<'PY'
 import sys
