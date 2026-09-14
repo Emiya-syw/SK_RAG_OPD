@@ -116,6 +116,7 @@ class AsyncTeacherLLMServerManager:
     async def compute_teacher_logprobs_single(
         self,
         sequence_ids: list[int],
+        response_length: int,
         multi_modal_data: Optional[dict[str, Any]] = None,
         mm_processor_kwargs: Optional[dict[str, Any]] = None,
         routing_key: Optional[str] = None,
@@ -138,5 +139,52 @@ class AsyncTeacherLLMServerManager:
         # the distillation loss settings.
         teacher_ids = torch.tensor(teacher_output.extra_fields["prompt_ids"], dtype=torch.int32)
         teacher_logprobs = torch.tensor(teacher_output.extra_fields["prompt_logprobs"])
-        assert teacher_ids.shape[0] == teacher_logprobs.shape[0] == len(sequence_ids)
+        returned_length = teacher_ids.shape[0]
+        expected_length = len(sequence_ids)
+        if returned_length != teacher_logprobs.shape[0]:
+            raise ValueError(
+                "Teacher returned different token-id and logprob lengths: "
+                f"teacher_ids={returned_length}, teacher_logprobs={teacher_logprobs.shape[0]}"
+            )
+        if returned_length != expected_length:
+            # vLLM may re-expand multimodal placeholder runs differently from the
+            # Hugging Face processor used by the agent loop. Distillation only
+            # consumes response positions, so preserve the response-aligned suffix
+            # and add/drop prompt-only rows on the left. For estimator losses
+            # (prompt_logprobs=0), prompt_ids contains the scored token at each row;
+            # verify the complete response suffix before realigning.
+            if not multi_modal_data or teacher_ids.ndim != 2 or teacher_ids.shape[1] != 1:
+                raise ValueError(
+                    "Teacher sequence length mismatch cannot be safely aligned: "
+                    f"expected={expected_length}, teacher_ids={returned_length}, "
+                    f"teacher_logprobs={teacher_logprobs.shape[0]}, multimodal={bool(multi_modal_data)}"
+                )
+            if returned_length < response_length + 1:
+                raise ValueError(
+                    "Teacher output is too short to contain the response: "
+                    f"returned={returned_length}, response={response_length}, expected={expected_length}"
+                )
+            returned_response_ids = teacher_ids[-(response_length + 1) : -1, 0].tolist()
+            expected_response_ids = sequence_ids[-response_length:]
+            if returned_response_ids != expected_response_ids:
+                raise ValueError(
+                    "Teacher response-token suffix differs from the student sequence; "
+                    f"expected_length={expected_length}, returned_length={returned_length}, "
+                    f"response_length={response_length}"
+                )
+            logger.warning(
+                "Aligning multimodal teacher output on the response suffix: "
+                "sequence=%d, teacher_ids=%d, teacher_logprobs=%d, response=%d",
+                expected_length,
+                returned_length,
+                teacher_logprobs.shape[0],
+                response_length,
+            )
+            if returned_length > expected_length:
+                teacher_ids = teacher_ids[-expected_length:]
+                teacher_logprobs = teacher_logprobs[-expected_length:]
+            else:
+                left_padding = expected_length - returned_length
+                teacher_ids = F.pad(teacher_ids, (0, 0, left_padding, 0), value=0)
+                teacher_logprobs = F.pad(teacher_logprobs, (0, 0, left_padding, 0), value=0.0)
         return teacher_ids, teacher_logprobs

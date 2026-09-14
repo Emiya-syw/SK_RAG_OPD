@@ -1016,6 +1016,7 @@ class AgentLoopWorker:
                     routing_key = routing_value.item() if hasattr(routing_value, "item") else routing_value
             teacher_ids, teacher_logprobs = await self.teacher_server_manager.compute_teacher_logprobs_single(
                 sequence_ids=prompt_ids + response_ids,
+                response_length=len(response_ids),
                 multi_modal_data=output.multi_modal_data,
                 mm_processor_kwargs=output.mm_processor_kwargs,
                 routing_key=routing_key,

@@ -9,16 +9,38 @@ patch_files=(
   "${project_root}/patches/verl-opd-jagged-teacher-padding.patch"
 )
 
-if [[ ! -d "${verl_source_dir}/.git" ]]; then
+# The runtime may be either a standalone veRL checkout (with its own .git)
+# or a vendored source tree tracked by this project.  The latter deliberately
+# has no nested .git directory, so validate the source files instead of
+# requiring a second repository.
+if [[ ! -d "${verl_source_dir}/verl" ]]; then
   echo "veRL source repository does not exist: ${verl_source_dir}" >&2
   exit 2
 fi
 
+git_root="${verl_source_dir}"
+git_directory_args=()
+if [[ ! -d "${verl_source_dir}/.git" ]]; then
+  # A vendored runtime must live below the project repository so that git
+  # apply can update the tracked files without treating the patch paths as
+  # absolute filesystem paths.
+  case "${verl_source_dir}/" in
+    "${project_root}/"*)
+      git_root="${project_root}"
+      git_directory_args=(--directory="${verl_source_dir#${project_root}/}")
+      ;;
+    *)
+      echo "veRL source has no .git directory and is outside the project: ${verl_source_dir}" >&2
+      exit 2
+      ;;
+  esac
+fi
+
 for patch_file in "${patch_files[@]}"; do
-  if git -C "${verl_source_dir}" apply --reverse --check "${patch_file}" >/dev/null 2>&1; then
+  if git -C "${git_root}" apply "${git_directory_args[@]}" --reverse --check "${patch_file}" >/dev/null 2>&1; then
     echo "veRL patch is already applied: $(basename "${patch_file}")"
-  elif git -C "${verl_source_dir}" apply --check "${patch_file}"; then
-    git -C "${verl_source_dir}" apply "${patch_file}"
+  elif git -C "${git_root}" apply "${git_directory_args[@]}" --check "${patch_file}"; then
+    git -C "${git_root}" apply "${git_directory_args[@]}" "${patch_file}"
     echo "Applied veRL patch: $(basename "${patch_file}")"
   else
     echo "Cannot apply ${patch_file}; veRL source differs from the pinned runtime." >&2
