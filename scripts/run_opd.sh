@@ -430,6 +430,7 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "actor_rollout_ref.rollout.enable_chunked_prefill=${ROLLOUT_ENABLE_CHUNKED_PREFILL}" \
   "actor_rollout_ref.rollout.enable_prefix_caching=${ROLLOUT_ENABLE_PREFIX_CACHING}" \
   "actor_rollout_ref.rollout.max_model_len=${MAX_MODEL_LEN}" \
+  "+actor_rollout_ref.rollout.engine_kwargs.vllm.attention_backend=${VLLM_ATTENTION_BACKEND}" \
   "trainer.balance_batch=${BALANCE_BATCH}" \
   "trainer.logger=${TRAINER_LOGGER}" \
   "trainer.log_val_generations=${LOG_VAL_GENERATIONS}" \
@@ -459,6 +460,7 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "distillation.teacher_models.teacher_model.inference.max_num_seqs=${TEACHER_MAX_NUM_SEQS}" \
   "distillation.teacher_models.teacher_model.inference.load_format=${TEACHER_LOAD_FORMAT}" \
   "distillation.teacher_models.teacher_model.inference.enforce_eager=${TEACHER_ENFORCE_EAGER}" \
+  "+distillation.teacher_models.teacher_model.inference.engine_kwargs.vllm.attention_backend=${VLLM_ATTENTION_BACKEND}" \
   "distillation.distillation_loss.loss_mode=${DISTILLATION_LOSS_MODE}" \
   "distillation.distillation_loss.topk=${DISTILLATION_TOPK}" \
   "distillation.distillation_loss.distillation_loss_coef=${DISTILLATION_LOSS_COEF}" \
