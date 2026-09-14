@@ -65,10 +65,10 @@ UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
     --inexact
 
 # A sync interrupted by a full disk can leave dist-info present while package
-# files are incomplete. Repair the two packages observed on the critical import
-# path from the lock file, but avoid reinstalling them on a healthy environment.
-if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM' >/dev/null 2>&1; then
-  echo "Repairing incomplete SymPy/vLLM package files..."
+# files are incomplete. Repair packages on the critical import paths from the
+# lock file, but avoid reinstalling them on a healthy environment.
+if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM; import flashinfer, flashinfer_cubin; assert flashinfer_cubin.__version__' >/dev/null 2>&1; then
+  echo "Repairing incomplete SymPy/vLLM/FlashInfer package files..."
   UV_CACHE_DIR="${uv_cache_dir}" \
   UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
     "${CONDA_PREFIX}/bin/uv" sync \
@@ -79,7 +79,9 @@ if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM' >/dev/null 2>&
       --frozen \
       --inexact \
       --reinstall-package sympy \
-      --reinstall-package vllm
+      --reinstall-package vllm \
+      --reinstall-package flashinfer-python \
+      --reinstall-package flashinfer-cubin
 fi
 
 "${python_bin}" - <<'PY'
