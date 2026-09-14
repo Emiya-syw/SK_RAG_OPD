@@ -330,6 +330,23 @@ if ! runtime_import_error="$("${PYTHON_BIN}" -c \
   exit 2
 fi
 
+# The pinned veRL release aborts every Qwen3-VL OPD trajectory when vLLM and
+# the HF processor use different visual-placeholder widths. Check the exact
+# source imported by this Python before allocating GPUs and loading models.
+verl_teacher_manager="$("${PYTHON_BIN}" -c \
+  'from pathlib import Path; import verl; print(Path(verl.__file__).resolve().parent / "experimental/teacher_loop/teacher_manager.py")')"
+if ! grep -q 'Aligning multimodal teacher output on the response suffix' "${verl_teacher_manager}"; then
+  cat >&2 <<EOF
+The active Python is importing an unpatched veRL runtime:
+  ${verl_teacher_manager}
+
+Apply the required Qwen3-VL OPD patch, stop existing Ray workers, then rerun:
+  VERL_SOURCE_DIR=$(dirname "$(dirname "$(dirname "$(dirname "${verl_teacher_manager}")")")") PYTHON_BIN=${PYTHON_BIN} bash ${project_root}/scripts/patch_verl_runtime.sh
+  ray stop --force
+EOF
+  exit 2
+fi
+
 model_args=(
   "actor_rollout_ref.model.path=${MODEL_PATH}"
   "actor_rollout_ref.model.trust_remote_code=${TRUST_REMOTE_CODE}"
