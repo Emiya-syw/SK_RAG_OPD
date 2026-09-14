@@ -64,10 +64,20 @@ UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
     --frozen \
     --inexact
 
+# A sync interrupted by a full disk can leave SymPy's dist-info present while
+# package files are incomplete. It is small, ABI-independent, and imported by
+# torch._dynamo through TensorDict, so always replace it from the locked version.
+UV_CACHE_DIR="${uv_cache_dir}" \
+  "${CONDA_PREFIX}/bin/uv" pip install \
+    --python "${python_bin}" \
+    --reinstall \
+    "sympy==1.14.0"
+
 "${python_bin}" - <<'PY'
 import sys
 
 import flash_attn
+import sympy
 import torch
 import transfer_queue
 import transformers
@@ -87,6 +97,7 @@ print("Visible GPUs:", torch.cuda.device_count())
 print("vLLM:", vllm.__version__)
 print("Transformers:", transformers.__version__)
 print("FlashAttention:", flash_attn.__version__)
+print("SymPy:", sympy.__version__)
 print("TransferQueue:", transfer_queue.__file__)
 print("veRL:", verl.__file__)
 PY
