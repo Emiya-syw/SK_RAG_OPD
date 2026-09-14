@@ -25,8 +25,8 @@ if [[ "${python_version}" != "3.12" ]]; then
 fi
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-verl_source_dir="${VERL_SOURCE_DIR:-$(dirname "${project_root}")/verl-runtime}"
-uv_cache_dir="${UV_CACHE_DIR:-$(dirname "${project_root}")/.cache/uv-sk-rag-opd}"
+verl_source_dir="${VERL_SOURCE_DIR:-${project_root}/verl-runtime}"
+uv_cache_dir="${UV_CACHE_DIR:-${project_root}/.cache/uv-sk-rag-opd}"
 mkdir -p "${uv_cache_dir}"
 
 echo "Conda environment : ${CONDA_PREFIX}"

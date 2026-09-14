@@ -2,7 +2,7 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-verl_source_dir="${VERL_SOURCE_DIR:-$(dirname "${project_root}")/verl-runtime}"
+verl_source_dir="${VERL_SOURCE_DIR:-${project_root}/verl-runtime}"
 patch_files=(
   "${project_root}/patches/verl-qwen3-vl-opd-teacher-alignment.patch"
   "${project_root}/patches/verl-opd-synthetic-padding-teacher-fields.patch"
