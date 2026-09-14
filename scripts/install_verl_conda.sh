@@ -75,6 +75,7 @@ UV_CACHE_DIR="${uv_cache_dir}" \
 
 "${python_bin}" - <<'PY'
 import sys
+from importlib.metadata import version
 
 import flash_attn
 import sympy
@@ -94,7 +95,7 @@ print("Python:", sys.version.split()[0])
 print("Torch:", torch.__version__)
 print("Torch CUDA:", torch.version.cuda)
 print("Visible GPUs:", torch.cuda.device_count())
-print("vLLM:", vllm.__version__)
+print("vLLM:", version("vllm"))
 print("Transformers:", transformers.__version__)
 print("FlashAttention:", flash_attn.__version__)
 print("SymPy:", sympy.__version__)
