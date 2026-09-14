@@ -65,10 +65,9 @@ UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
     --inexact
 
 # A sync interrupted by a full disk can leave dist-info present while package
-# files are incomplete. Repair packages on the critical import paths from the
-# lock file, but avoid reinstalling them on a healthy environment.
-if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM; import flashinfer, flashinfer_cubin; assert flashinfer_cubin.__version__' >/dev/null 2>&1; then
-  echo "Repairing incomplete SymPy/vLLM/FlashInfer package files..."
+# files are incomplete. Repair only the affected packages from the lock file.
+if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM' >/dev/null 2>&1; then
+  echo "Repairing incomplete SymPy/vLLM package files..."
   UV_CACHE_DIR="${uv_cache_dir}" \
   UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
     "${CONDA_PREFIX}/bin/uv" sync \
@@ -79,7 +78,20 @@ if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM; import flashin
       --frozen \
       --inexact \
       --reinstall-package sympy \
-      --reinstall-package vllm \
+      --reinstall-package vllm
+fi
+
+if ! "${python_bin}" -c 'import flashinfer, flashinfer_cubin; assert flashinfer_cubin.__version__' >/dev/null 2>&1; then
+  echo "Repairing incomplete FlashInfer package files..."
+  UV_CACHE_DIR="${uv_cache_dir}" \
+  UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
+    "${CONDA_PREFIX}/bin/uv" sync \
+      --project "${verl_source_dir}" \
+      --python "${python_bin}" \
+      --extra fsdp \
+      --extra vllm \
+      --frozen \
+      --inexact \
       --reinstall-package flashinfer-python \
       --reinstall-package flashinfer-cubin
 fi
@@ -89,6 +101,8 @@ import sys
 from importlib.metadata import version
 
 import flash_attn
+import flashinfer
+import flashinfer_cubin
 import sympy
 import torch
 import transfer_queue
@@ -100,6 +114,7 @@ from transformers.utils import is_flash_attn_2_available
 assert sys.version_info[:2] == (3, 12), sys.version
 assert torch.cuda.is_available(), "PyTorch cannot access CUDA"
 assert is_flash_attn_2_available(), "Transformers cannot use FlashAttention2"
+assert flashinfer_cubin.__version__ == version("flashinfer-cubin")
 
 print("\nveRL Conda runtime is ready")
 print("Python:", sys.version.split()[0])
@@ -109,6 +124,8 @@ print("Visible GPUs:", torch.cuda.device_count())
 print("vLLM:", version("vllm"))
 print("Transformers:", transformers.__version__)
 print("FlashAttention:", flash_attn.__version__)
+print("FlashInfer:", version("flashinfer-python"))
+print("FlashInfer cubin:", flashinfer_cubin.__version__)
 print("SymPy:", sympy.__version__)
 print("TransferQueue:", transfer_queue.__file__)
 print("veRL:", verl.__file__)
