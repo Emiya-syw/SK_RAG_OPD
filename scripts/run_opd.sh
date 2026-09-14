@@ -43,8 +43,8 @@ MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-8192}"
 MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-${MAX_NEW_TOKENS:-2048}}"
 # vLLM 总上下文长度。默认 prompt + response + 1；可设更大，但显存占用会上升。
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH + 1))}"
-# 单张图像最大像素数。正整数；降低可减少视觉 token 和显存，可能损失细节。
-MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-262144}"
+# 单张图像最大像素数。多图 RAG prompt 使用 131072，避免视觉 token 总数超过 8192。
+MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-131072}"
 # 是否过滤过长样本。可选：false（推荐，避免在 Ray worker 内嵌套多进程）、true（训练前逐图计算并过滤）。
 FILTER_OVERLONG_PROMPTS="${FILTER_OVERLONG_PROMPTS:-false}"
 # 过滤 prompt 长度时使用的 CPU 进程数。正整数；多模态数据建议 4-8，过大会增加内存占用。
@@ -178,6 +178,9 @@ TEACHER_MAX_NUM_SEQS="${TEACHER_MAX_NUM_SEQS:-1024}"
 TEACHER_LOAD_FORMAT="${TEACHER_LOAD_FORMAT:-auto}"
 # teacher vLLM eager 模式。可选：true/false；true 更稳但可能更慢。
 TEACHER_ENFORCE_EAGER="${TEACHER_ENFORCE_EAGER:-true}"
+# teacher 必须返回每个 prompt token 的 logprob。vLLM prefix cache 不保存这些
+# logprob，缓存命中时可能返回较短/错误的结果，因此 OPD teacher 必须关闭它。
+TEACHER_ENABLE_PREFIX_CACHING="${TEACHER_ENABLE_PREFIX_CACHING:-false}"
 # teacher 副本数。空字符串表示 TEACHER_GPUS_PER_NODE / TEACHER_TP；可手动设正整数。
 TEACHER_NUM_REPLICAS="${TEACHER_NUM_REPLICAS:-}"
 
@@ -291,7 +294,7 @@ render_training_config() {
     LOG_PROB_MIN_CLAMP USE_CHUNKED_TOPK CHUNKED_TOPK_CHUNK_SIZE \
     DISTILLATION_POLICY_LOSS_MODE DISTILLATION_CLIP_RATIO TEACHER_TP \
     TEACHER_GPU_MEMORY_UTILIZATION TEACHER_MAX_NUM_SEQS TEACHER_LOAD_FORMAT \
-    TEACHER_ENFORCE_EAGER TEACHER_NUM_REPLICAS
+    TEACHER_ENFORCE_EAGER TEACHER_ENABLE_PREFIX_CACHING TEACHER_NUM_REPLICAS
   render_config_group "distributed_logging_and_checkpoints" \
     TRAINER_GPUS_PER_NODE TEACHER_GPUS_PER_NODE NNODES TEACHER_NNODES \
     BALANCE_BATCH EPOCHS TOTAL_TRAINING_STEPS SAVE_FREQ MAX_ACTOR_CKPT_TO_KEEP \
@@ -461,6 +464,7 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "distillation.teacher_models.teacher_model.inference.max_num_seqs=${TEACHER_MAX_NUM_SEQS}" \
   "distillation.teacher_models.teacher_model.inference.load_format=${TEACHER_LOAD_FORMAT}" \
   "distillation.teacher_models.teacher_model.inference.enforce_eager=${TEACHER_ENFORCE_EAGER}" \
+  "distillation.teacher_models.teacher_model.inference.enable_prefix_caching=${TEACHER_ENABLE_PREFIX_CACHING}" \
   "+distillation.teacher_models.teacher_model.inference.engine_kwargs.vllm.attention_backend=${VLLM_ATTENTION_BACKEND}" \
   "distillation.distillation_loss.loss_mode=${DISTILLATION_LOSS_MODE}" \
   "distillation.distillation_loss.topk=${DISTILLATION_TOPK}" \

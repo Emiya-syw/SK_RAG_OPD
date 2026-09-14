@@ -99,8 +99,14 @@ TRAIN_BATCH_SIZE=8 \
 PPO_MINI_BATCH_SIZE=8 \
 MAX_PROMPT_LENGTH=8192 \
 MAX_RESPONSE_LENGTH=2048 \
+MAX_IMAGE_PIXELS=131072 \
+TEACHER_ENABLE_PREFIX_CACHING=false \
 bash scripts/train_consistent.sh
 ```
+
+OPD teacher 依赖 vLLM 为完整的 student 序列返回逐 token
+`prompt_logprobs`，因此脚本默认关闭 teacher 的 prefix cache。多图训练默认把
+单图限制为 131072 像素，防止所有图片累积后的视觉 token 超过 prompt 上限。
 
 额外的 veRL/Hydra override 可附加到 `run_opd.sh`：
 
