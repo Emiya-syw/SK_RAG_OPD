@@ -43,8 +43,8 @@ MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-8192}"
 MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-${MAX_NEW_TOKENS:-2048}}"
 # vLLM 总上下文长度。默认 prompt + response + 1；可设更大，但显存占用会上升。
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH + 1))}"
-# 单张图像最大像素数。多图 RAG prompt 使用 131072，避免视觉 token 总数超过 8192。
-MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-131072}"
+# 单张图像最大像素数。多图 RAG prompt 使用 100352（128×28²），控制视觉 token 总数。
+MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-100352}"
 # 是否过滤过长样本。可选：false（推荐，避免在 Ray worker 内嵌套多进程）、true（训练前逐图计算并过滤）。
 FILTER_OVERLONG_PROMPTS="${FILTER_OVERLONG_PROMPTS:-false}"
 # 过滤 prompt 长度时使用的 CPU 进程数。正整数；多模态数据建议 4-8，过大会增加内存占用。
@@ -341,6 +341,18 @@ The active Python is importing an unpatched veRL runtime:
   ${verl_teacher_manager}
 
 Apply the required Qwen3-VL OPD patch, stop existing Ray workers, then rerun:
+  VERL_SOURCE_DIR=$(dirname "$(dirname "$(dirname "$(dirname "${verl_teacher_manager}")")")") PYTHON_BIN=${PYTHON_BIN} bash ${project_root}/scripts/patch_verl_runtime.sh
+  ray stop --force
+EOF
+  exit 2
+fi
+verl_padding_utils="$(dirname "$(dirname "$(dirname "${verl_teacher_manager}")")")/trainer/ppo/padding_utils.py"
+if ! grep -q 'OPD teacher tensors are sequence-shaped' "${verl_padding_utils}"; then
+  cat >&2 <<EOF
+The active veRL runtime is missing the OPD synthetic-padding fix:
+  ${verl_padding_utils}
+
+Apply all runtime patches, stop existing Ray workers, then rerun:
   VERL_SOURCE_DIR=$(dirname "$(dirname "$(dirname "$(dirname "${verl_teacher_manager}")")")") PYTHON_BIN=${PYTHON_BIN} bash ${project_root}/scripts/patch_verl_runtime.sh
   ray stop --force
 EOF
