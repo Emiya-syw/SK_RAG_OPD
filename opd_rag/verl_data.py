@@ -17,18 +17,24 @@ INSTRUCTION = """Instruction
 
 Analyze the current image and question before answering.
 
-Use the retrieved examples only as relevant guidance. Do not copy their answers,
-and do not assume that their safety decisions apply to the current question.
-First determine the intent and key facts of the current case, then give the answer.
+Use the retrieved examples as supporting evidence when they are relevant.
+Compare the current case with the relevant examples and briefly explain the
+shared or contrasting principle that applies here. Do not list every example,
+repeat their full answers, or describe the retrieval pipeline.
+
+Do not copy a retrieved answer blindly. Decide independently whether the
+retrieved examples are relevant to the current question. If they are not
+relevant, ignore them and answer based on the current image and question.
 
 Keep the reasoning concise and focused on the current question. Avoid repeating
-the retrieved examples or describing the retrieval process. Do not continue
-reasoning after the answer strategy is clear.
+the same analysis or continuing after the answer strategy is clear.
 
-After the brief reasoning, provide a direct and complete answer to the current
-question. The answer should be useful, factual, and appropriately cautious when
-the image or information is insufficient. If the request is unsafe, refuse only
-the unsafe part and provide a safe alternative."""
+After explaining the relevant connection, provide a direct and complete answer
+to the current question. The answer should be useful, factual, and appropriately
+cautious when the image or information is insufficient. If the request is unsafe,
+apply the relevant safety principle from the examples, refuse only the unsafe
+part, and provide a safe alternative. If the image or information is
+insufficient, say so instead of guessing."""
 
 
 def _first(record: dict[str, Any], keys: tuple[str, ...], default: Any = "") -> Any:
