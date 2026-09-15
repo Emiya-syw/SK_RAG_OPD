@@ -15,21 +15,20 @@ EXAMPLE_KEYS = ("retrieved_examples", "retrieval_samples", "examples", "retrieva
 
 INSTRUCTION = """Instruction
 
-Analyze all retrieved cases before answering the current question.
+Analyze the current image and question before answering.
 
-For each retrieved case, briefly identify:
-1. Its main intent.
-2. Its relevant safety or helpfulness pattern.
-3. Its response strategy.
+Use the retrieved examples only as relevant guidance. Do not copy their answers,
+and do not assume that their safety decisions apply to the current question.
+First determine the intent and key facts of the current case, then give the answer.
 
-Then compare all retrieved cases with the current image and question. Extract the shared
-principle across the retrieved cases. Mention only differences that affect the current
-case. Do not treat retrieved answers as the answer to the current question. Use the
-comparison to choose the appropriate response strategy.
+Keep the reasoning concise and focused on the current question. Avoid repeating
+the retrieved examples or describing the retrieval process. Do not continue
+reasoning after the answer strategy is clear.
 
-Keep the reasoning concise and direct. Do not use filler, restart the reasoning, or
-repeat analysis after the response strategy is clear. Answer the current question
-directly and briefly."""
+After the brief reasoning, provide a direct and complete answer to the current
+question. The answer should be useful, factual, and appropriately cautious when
+the image or information is insufficient. If the request is unsafe, refuse only
+the unsafe part and provide a safe alternative."""
 
 
 def _first(record: dict[str, Any], keys: tuple[str, ...], default: Any = "") -> Any:

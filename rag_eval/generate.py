@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from opd_rag.thinking import chat_template_kwargs
+from opd_rag.verl_data import INSTRUCTION
 from rag_eval.data import read_jsonl, write_jsonl
 
 
@@ -32,29 +33,7 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
                 ),
             }
         )
-    content.append(
-        {
-            "type": "text",
-            "text": (
-                "Instruction\n\n"
-                "Analyze all retrieved cases before answering the current question.\n\n"
-                "For each retrieved case, briefly identify:\n"
-                "1. Its main intent.\n"
-                "2. Its relevant safety or helpfulness pattern.\n"
-                "3. Its response strategy.\n\n"
-                "Then compare all retrieved cases with the current image and question.\n"
-                "Extract the shared principle across the retrieved cases.\n"
-                "Mention only the differences that affect the current case.\n"
-                "Do not treat retrieved answers as the answer to the current question.\n"
-                "Use the comparison to determine the appropriate response strategy.\n\n"
-                "Keep the reasoning concise.\n"
-                "During reasoning, do not use filler or self-interruption phrases such as \"Wait\", \"Hmm\", \"Let me think\", \"Let me reconsider\", or repeated self-corrections.\n"
-                "Reason directly and concisely. Do not restart the reasoning unless a concrete contradiction is identified.\n"
-                "Do not repeat the same analysis or continue thinking after the response strategy is clear.\n"
-                "Answer the current question directly and briefly."
-            ),
-        }
-    )
+    content.append({"type": "text", "text": INSTRUCTION})
     return [{"role": "user", "content": content}]
 
 
