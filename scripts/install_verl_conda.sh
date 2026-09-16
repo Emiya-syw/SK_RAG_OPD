@@ -70,6 +70,29 @@ UV_PROJECT_ENVIRONMENT="${CONDA_PREFIX}" \
     --frozen \
     --inexact
 
+# TransferQueue's Git package can occasionally be installed without its
+# package-data file `transfer_queue/version/version`.  Its __init__ reads that
+# file unconditionally, so repair the installation before the import check
+# below.  Keep the version sourced from the installed distribution metadata.
+"${python_bin}" - <<'PY'
+import importlib.metadata as metadata
+import pathlib
+import sysconfig
+
+site_packages = pathlib.Path(sysconfig.get_paths()["purelib"])
+package_dir = site_packages / "transfer_queue"
+version_file = package_dir / "version" / "version"
+if package_dir.is_dir() and not version_file.is_file():
+    try:
+        installed_version = metadata.version("TransferQueue")
+    except metadata.PackageNotFoundError:
+        installed_version = None
+    if installed_version:
+        version_file.parent.mkdir(parents=True, exist_ok=True)
+        version_file.write_text(installed_version + "\n", encoding="utf-8")
+        print(f"Repaired missing {version_file} ({installed_version})", file=sys.stderr)
+PY
+
 # A sync interrupted by a full disk can leave dist-info present while package
 # files are incomplete. Repair only the affected packages from the lock file.
 if ! "${python_bin}" -c 'import sympy.core; from vllm import LLM' >/dev/null 2>&1; then

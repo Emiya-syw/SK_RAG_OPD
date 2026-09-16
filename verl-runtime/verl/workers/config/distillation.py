@@ -233,6 +233,10 @@ class DistillationConfig(BaseConfig):
     teacher_key (str):
         Key to route examples to the appropriate teacher model in multi-teacher setups. Should correspond to a field in
         the data proto, e.g., data_source.
+    use_privileged_info (bool):
+        Whether the teacher receives the optional privileged context. This is
+        consumed by the agent loop and defaults to false for backwards
+        compatibility.
     distillation_loss (DistillationLossConfig):
     Configuration for distillation loss settings.
 
@@ -264,6 +268,7 @@ class DistillationConfig(BaseConfig):
     nnodes: int = 0
     teacher_models: dict[str, DistillationTeacherModelConfig] = field(default_factory=dict)
     teacher_key: str = "data_source"
+    use_privileged_info: bool = False
     distillation_loss: DistillationLossConfig = field(default_factory=DistillationLossConfig)
 
     def __post_init__(self):
