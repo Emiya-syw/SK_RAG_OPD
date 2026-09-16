@@ -133,6 +133,9 @@ def convert_record(
             "id": record_id,
             "question_type": record.get("question_type"),
             "input_safety_label": record.get("input_safety_label"),
+            # Kept out of the student prompt.  The agent loop may optionally
+            # use this as teacher-only privileged context.
+            "teacher_demonstration": record.get("teacher_demonstration", ""),
         },
     }
 

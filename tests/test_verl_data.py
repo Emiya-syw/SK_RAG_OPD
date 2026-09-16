@@ -34,6 +34,7 @@ def test_convert_record_matches_verl_multimodal_schema(tmp_path):
     assert row["data_source"] == "sk_rag_opd"
     assert row["extra_info"]["index"] == 7
     assert row["reward_model"]["ground_truth"] == "A safe answer."
+    assert row["extra_info"]["teacher_demonstration"] == ""
     assert len(row["images"]) == 2
     assert row["prompt"][0]["content"].count("<image>") == len(row["images"])
 

@@ -25,6 +25,9 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3-VL-2B-Thinking}"
 # teacher 权重。可选：与 student 同 tokenizer 词表的 HF ID 或本地目录；越强通常蒸馏信号越好、显存越高。
 TEACHER_MODEL_PATH="${TEACHER_MODEL_PATH:-Qwen/Qwen3-VL-8B-Thinking}"
+# Whether to expose each record's teacher_demonstration to the teacher only.
+# false preserves the original shared student/teacher prompt behavior.
+TEACHER_USE_PRIVILEGED_INFO="${TEACHER_USE_PRIVILEGED_INFO:-false}"
 # 已导出的 PEFT adapter，用于接续阶段训练。可选：空字符串或含 adapter_config.json 的目录。
 LORA_INIT_PATH="${LORA_INIT_PATH:-}"
 # 是否启用 Qwen Thinking。可选：false（空 think 后直接回答）、true（使用模型原生思考模板）。
@@ -302,7 +305,8 @@ render_training_config() {
     LOG_PROB_MIN_CLAMP USE_CHUNKED_TOPK CHUNKED_TOPK_CHUNK_SIZE \
     DISTILLATION_POLICY_LOSS_MODE DISTILLATION_CLIP_RATIO TEACHER_TP \
     TEACHER_GPU_MEMORY_UTILIZATION TEACHER_MAX_NUM_SEQS TEACHER_LOAD_FORMAT \
-    TEACHER_ENFORCE_EAGER TEACHER_ENABLE_PREFIX_CACHING TEACHER_NUM_REPLICAS
+    TEACHER_ENFORCE_EAGER TEACHER_ENABLE_PREFIX_CACHING TEACHER_NUM_REPLICAS \
+    TEACHER_USE_PRIVILEGED_INFO
   render_config_group "distributed_logging_and_checkpoints" \
     TRAINER_GPUS_PER_NODE TEACHER_GPUS_PER_NODE NNODES TEACHER_NNODES \
     BALANCE_BATCH EPOCHS TOTAL_TRAINING_STEPS SAVE_FREQ MAX_ACTOR_CKPT_TO_KEEP \
@@ -515,6 +519,7 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "distillation.teacher_models.teacher_model.inference.load_format=${TEACHER_LOAD_FORMAT}" \
   "distillation.teacher_models.teacher_model.inference.enforce_eager=${TEACHER_ENFORCE_EAGER}" \
   "distillation.teacher_models.teacher_model.inference.enable_prefix_caching=${TEACHER_ENABLE_PREFIX_CACHING}" \
+  "+distillation.use_privileged_info=${TEACHER_USE_PRIVILEGED_INFO}" \
   "+distillation.teacher_models.teacher_model.inference.engine_kwargs.vllm.attention_backend=${VLLM_ATTENTION_BACKEND}" \
   "distillation.distillation_loss.loss_mode=${DISTILLATION_LOSS_MODE}" \
   "distillation.distillation_loss.topk=${DISTILLATION_TOPK}" \

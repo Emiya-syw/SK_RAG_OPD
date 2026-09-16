@@ -483,6 +483,14 @@ class AgentLoopWorker:
 
         # Online policy distillation
         self.distillation_enabled = is_distillation_enabled(config.distillation)
+        # Optional teacher-only context.  The default is deliberately false so
+        # existing runs keep the exact shared-prompt behavior.
+        configured_privileged = config.distillation.get("use_privileged_info", None)
+        if configured_privileged is None:
+            configured_privileged = os.getenv("TEACHER_USE_PRIVILEGED_INFO", "false")
+        self.teacher_use_privileged_info = str(configured_privileged).strip().lower() in {
+            "1", "true", "yes", "on"
+        }
         if self.distillation_enabled:
             from verl.experimental.teacher_loop.teacher_manager import AsyncTeacherLLMServerManager
 
@@ -1014,13 +1022,48 @@ class AgentLoopWorker:
                 if routing_value is not None:
                     # Non-tensor batch values arrive as 0-d numpy objects / arrays; normalize to Python.
                     routing_key = routing_value.item() if hasattr(routing_value, "item") else routing_value
+            privileged_text = ""
+            if self.teacher_use_privileged_info and sample_kwargs is not None:
+                extra_info = sample_kwargs.get("extra_info") or {}
+                if isinstance(extra_info, np.ndarray) and extra_info.ndim == 0:
+                    extra_info = extra_info.item()
+                if isinstance(extra_info, dict):
+                    privileged_text = str(extra_info.get("teacher_demonstration") or "").strip()
+
+            # Insert teacher-only text immediately before the sampled response.
+            # It is removed from the returned teacher tensors below so the
+            # actor still receives tensors in the student's sequence layout.
+            privileged_ids: list[int] = []
+            if privileged_text:
+                teacher_only_prompt = (
+                    "\n\nTeacher-only privileged reference:\n"
+                    "The following information is provided only for reference. "
+                    "Do not copy its reasoning or answer verbatim. Use it only to "
+                    "inform your independent analysis of the current user question. "
+                    "Treat it as reasoning guidance rather than a response to the user. "
+                    "You must still answer the current user's question directly and completely.\n"
+                    "--- BEGIN PRIVILEGED REFERENCE ---\n"
+                    + privileged_text
+                    + "\n--- END PRIVILEGED REFERENCE ---\n\n"
+                )
+                privileged_ids = self.tokenizer.encode(teacher_only_prompt, add_special_tokens=False)
+
             teacher_ids, teacher_logprobs = await self.teacher_server_manager.compute_teacher_logprobs_single(
-                sequence_ids=prompt_ids + response_ids,
+                sequence_ids=prompt_ids + privileged_ids + response_ids,
                 response_length=len(response_ids),
                 multi_modal_data=output.multi_modal_data,
                 mm_processor_kwargs=output.mm_processor_kwargs,
                 routing_key=routing_key,
             )
+            if privileged_ids:
+                # Teacher output rows are aligned to the unpadded sequence. Keep
+                # the original prompt rows and response suffix, dropping only
+                # rows corresponding to the teacher-only insertion.
+                boundary = len(prompt_ids)
+                teacher_ids = torch.cat((teacher_ids[:boundary], teacher_ids[boundary + len(privileged_ids) :]), dim=0)
+                teacher_logprobs = torch.cat(
+                    (teacher_logprobs[:boundary], teacher_logprobs[boundary + len(privileged_ids) :]), dim=0
+                )
             output.extra_fields["teacher_ids"] = teacher_ids
             output.extra_fields["teacher_logprobs"] = teacher_logprobs
 

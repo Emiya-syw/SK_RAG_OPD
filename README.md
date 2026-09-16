@@ -113,6 +113,19 @@ TEACHER_ENABLE_PREFIX_CACHING=false \
 bash scripts/train_consistent.sh
 ```
 
+默认情况下学生和教师共享同一条指令提示词。若要将源 JSONL 中的
+`teacher_demonstration` 作为教师专享的特权信息追加到教师评分提示词，可开启：
+
+```bash
+TEACHER_USE_PRIVILEGED_INFO=true \
+  bash scripts/train_consistent.sh
+```
+
+关闭（默认）或样本没有 `teacher_demonstration` 时，行为与原实现一致；学生提示词
+始终不会包含该字段。教师侧追加的 token 会在返回蒸馏张量前移除，以保持与学生
+response 的位置对齐。追加内容会明确标注为仅供参考的思考指导，要求教师独立分析、
+不要照抄其中的思考或答案，并继续直接完整地回答当前用户问题。
+
 OPD teacher 依赖 vLLM 为完整的 student 序列返回逐 token
 `prompt_logprobs`，因此脚本默认关闭 teacher 的 prefix cache。多图训练默认把
 单图限制为 100352 像素，防止所有图片累积后的视觉 token 超过 prompt 上限。
