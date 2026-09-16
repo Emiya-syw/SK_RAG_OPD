@@ -118,6 +118,8 @@ and the generated response, then returns exactly one of six JSON categories
 `BARE_REFUSAL`, `HELPFUL_REFUSAL`, `NON_INFORMATIVE`). MSSBench and SIUO keep
 their official prompts/protocols. The reported metrics are ASR for
 BeaverTails-V, FigStep, MM-SafetyBench, and SIUO-Gen; VLGuard reports ASR on
-unsafe samples and FRR (false refusal rate) on safe samples; MSSBench reports
-ASR and FRR separately for `chat` and `embodied`; SIUO-MCQA reports option
-accuracy.
+unsafe samples and FRR (false refusal rate) on safe samples. Following the
+authors' `utils/gpt4_eval.py` exactly, MSSBench reports Safe Acc, Unsafe Acc,
+and their unweighted mean Total Acc separately for `chat` and `embodied`;
+its judge rubrics retain the original wording and examples. The judge model
+remains `qwen3.6-flash`. SIUO-MCQA reports option accuracy.

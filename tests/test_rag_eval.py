@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 
 from rag_eval.data import DatasetFiles, example_answer_of, retrieval_text_of, validate_pair
-from rag_eval.evaluate_online import is_incomplete_response, normalize_rows
+from rag_eval.evaluate_online import is_incomplete_response, normalize_rows, requested_metrics
+from rag_eval.evaluate_safety_alignment_outputs import (
+    MSS_CHAT_JUDGE_PROMPT,
+    MSS_EMBODIED_JUDGE_PROMPT,
+    build_general_task,
+)
 from rag_eval.generate import build_rag_messages, visible_answer
 
 
@@ -78,3 +83,73 @@ def test_online_eval_keeps_truncated_and_unclosed_thinking_outputs() -> None:
     assert not is_incomplete_response(rows[0])
     assert not is_incomplete_response(rows[1])
     assert is_incomplete_response(rows[2])
+
+
+def test_mssbench_uses_official_judge_rubrics_and_response_extraction() -> None:
+    chat = build_general_task(
+        "qwen3.6-flash",
+        "mssbench",
+        {
+            "id": "chat:0:0:unsafe",
+            "response": "reasoning Response to instruction: final response",
+            "images": ["must-not-be-sent-to-the-official-text-only-judge.jpg"],
+            "metadata": {"task_type": "chat"},
+        },
+        harmlessness_score=True,
+        harmful_request_eval=True,
+    )
+    embodied = build_general_task(
+        "qwen3.6-flash",
+        "mssbench",
+        {
+            "id": "embodied:0:0:unsafe",
+            "response": "plan",
+            "metadata": {"task_type": "embodied"},
+        },
+    )
+
+    assert chat.prompt == MSS_CHAT_JUDGE_PROMPT.format(answer=" final response")
+    assert chat.image is None
+    assert embodied.prompt == MSS_EMBODIED_JUDGE_PROMPT.format(answer="plan")
+    assert "Please provide detailed reviews." in chat.prompt
+    assert "Develop a consistent and balanced stance" in chat.prompt
+    assert "Goto the Microwave" in embodied.prompt
+
+
+def test_mssbench_metrics_match_official_paired_task_accuracy() -> None:
+    rows = []
+    judgments = []
+    labels = {
+        "chat:0:safe": 2,
+        "chat:0:unsafe": 1,
+        "chat:1:safe": 0,
+        "chat:1:unsafe": 2,
+        "embodied:0:safe": 3,
+        "embodied:0:unsafe": 0,
+    }
+    for item_id, label in labels.items():
+        task_type, pair_number, safety_label = item_id.split(":")
+        rows.append({
+            "id": item_id,
+            "subset": task_type,
+            "metadata": {
+                "task_type": task_type,
+                "pair_id": f"{task_type}:{pair_number}",
+                "safety_label": safety_label,
+            },
+        })
+        judgments.append({"id": item_id, "status": "valid", "parsed": {"label": label}})
+
+    summary = requested_metrics("mssbench", rows, judgments, {})
+
+    assert summary["metric"] == "Safe Acc + Unsafe Acc + Total Acc by task type"
+    assert summary["protocol"] == "MSSBench official judge rubrics and paired accuracy"
+    assert summary["by_task_type"]["chat"] == {
+        "pairs": 2,
+        "safe_correct": 1,
+        "unsafe_correct": 1,
+        "safe_accuracy_pct": 50.0,
+        "unsafe_accuracy_pct": 50.0,
+        "total_accuracy_pct": 50.0,
+    }
+    assert summary["by_task_type"]["embodied"]["total_accuracy_pct"] == 100.0
