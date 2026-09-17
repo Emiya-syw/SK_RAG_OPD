@@ -138,7 +138,7 @@ def main() -> None:
     parser.add_argument("--flashrag-root", type=Path, default=DEFAULT_FLASHRAG)
     parser.add_argument("--embedding-repo", type=Path, default=DEFAULT_EMBEDDING_REPO)
     parser.add_argument("--embedding-model", type=Path, default=DEFAULT_EMBEDDING_MODEL)
-    parser.add_argument("--top-k", type=int, default=3)
+    parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--search-batch-size", type=int, default=256)
     parser.add_argument("--max-length", type=int, default=8192)

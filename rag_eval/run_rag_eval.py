@@ -6,13 +6,44 @@ import gc
 import json
 from pathlib import Path
 
-from rag_eval.data import DEFAULT_DATA_ROOT, select_datasets, validate_pair
+from rag_eval.data import DEFAULT_DATA_ROOT, DatasetFiles, select_datasets, validate_pair
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EMBEDDING_REPO = Path("/home/sunyw/Qwen3-VL-Embedding")
 DEFAULT_EMBEDDING_MODEL = DEFAULT_EMBEDDING_REPO / "models/Qwen3-VL-Embedding-2B"
 DEFAULT_BASE_MODEL = ROOT / "models/Qwen3-VL-2B-Thinking"
+DEFAULT_PRECOMPUTED_TOP_K = 10
+
+
+def resolve_generation_retrieval(
+    files: DatasetFiles, output_dir: Path, top_k: int
+) -> tuple[Path, int | None]:
+    if top_k < 1:
+        raise ValueError("--top-k must be >= 1")
+
+    runtime_path = output_dir / files.name / "retrieval.jsonl"
+    if runtime_path.is_file():
+        return runtime_path, top_k
+
+    top10_path = files.test.parent / (
+        f"test_qwen3vl_embedding_top{DEFAULT_PRECOMPUTED_TOP_K}.jsonl"
+    )
+    if top_k <= DEFAULT_PRECOMPUTED_TOP_K and top10_path.is_file():
+        return top10_path, top_k
+
+    exact_path = files.test.parent / f"test_qwen3vl_embedding_top{top_k}.jsonl"
+    if exact_path.is_file():
+        return exact_path, None
+    if top10_path.is_file():
+        raise ValueError(
+            f"--top-k {top_k} exceeds precomputed top{DEFAULT_PRECOMPUTED_TOP_K} "
+            f"for {files.name}; run --stage retrieve first."
+        )
+    raise FileNotFoundError(
+        f"No runtime or precomputed retrieval file for {files.name}; "
+        f"expected {top10_path.name}, or run --stage retrieve first."
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,21 +130,14 @@ def main() -> None:
     for path, label in ((args.base_model, "base model"), (args.adapter, "adapter")):
         if path is not None and not path.exists():
             raise FileNotFoundError(f"Missing {label}: {path}")
+    generation_inputs = [
+        (files, *resolve_generation_retrieval(files, args.output_dir, args.top_k))
+        for files in datasets
+    ]
     model, processor = load_generator(
         args.base_model, args.adapter, args.processor_path, args.dtype, args.attn_implementation
     )
-    for files in datasets:
-        retrieval_path = args.output_dir / files.name / "retrieval.jsonl"
-        precomputed_path = (
-            files.test.parent / f"test_qwen3vl_embedding_top{args.top_k}.jsonl"
-        )
-        if not retrieval_path.is_file() and precomputed_path.is_file():
-            retrieval_path = precomputed_path
-        if not retrieval_path.is_file():
-            raise FileNotFoundError(
-                f"No runtime or precomputed retrieval file for {files.name}; "
-                "run --stage retrieve first or use --stage all."
-            )
+    for files, retrieval_path, generation_top_k in generation_inputs:
         print(f"[{files.name}] generation", flush=True)
         generate_dataset(
             model=model,
@@ -132,6 +156,7 @@ def main() -> None:
             shard_index=args.shard_index,
             num_shards=args.num_shards,
             enable_thinking=args.enable_thinking,
+            top_k=generation_top_k,
         )
 
 

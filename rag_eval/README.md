@@ -12,9 +12,11 @@ The pipeline has three stages:
 3. `generate`: supply the current image/question and retrieved image/question/answer
    examples to the base model plus the optional OPD LoRA adapter.
 
-Precomputed Top-3 annotations are stored as
-`data/<dataset>/test_qwen3vl_embedding_top3.jsonl`. Therefore `--stage generate`
-does not load the embedding model or perform retrieval.
+Precomputed Top-10 annotations are stored as
+`data/<dataset>/test_qwen3vl_embedding_top10.jsonl`. Therefore `--stage generate`
+does not load the embedding model or perform retrieval. At test time, set
+`TOP_K=<k>` or pass `--top-k <k>` to use the first `k` retrieved cases from the
+Top-10 file.
 
 The enhanced `retrieval_qwen3.7_plus_merged.jsonl` file is selected first. Its
 `natural_response` is used as the demonstration answer. Test metadata is retained
@@ -65,10 +67,10 @@ Leave `ADAPTER_PATH` empty to evaluate the base model. Embeddings are cached in
 not recompute them. Set `REBUILD_CACHE=true` to force rebuilding.
 
 `run_rag_eval.sh` is the supported entry point. With `STAGE=generate` (the
-default), it uses the already generated `test_qwen3vl_embedding_top3.jsonl`
-files when available and does not load the embedding model. Use
-`STAGE=retrieve` or `STAGE=all` only when you explicitly want to recompute
-retrieval.
+default), it uses the already generated `test_qwen3vl_embedding_top10.jsonl`
+files when available, slices them to `TOP_K`, and does not load the embedding
+model. Use `STAGE=retrieve` or `STAGE=all` only when you explicitly want to
+recompute retrieval.
 
 QA generation supports batching. The default is `1` for broad GPU compatibility;
 set `GENERATION_BATCH_SIZE=2` or `4` in `run_rag_eval.sh` when the model and

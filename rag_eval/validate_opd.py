@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher-model", type=Path)
     parser.add_argument("--asr-only", action="store_true")
     parser.add_argument("--test-file", type=Path,
-                        default=ROOT / "rag_eval/data/VLGuard/test_qwen3vl_embedding_top3.jsonl")
+                        default=ROOT / "rag_eval/data/VLGuard/test_qwen3vl_embedding_top10.jsonl")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sample-size", type=int, default=256)
     parser.add_argument("--seed", type=int, default=42)

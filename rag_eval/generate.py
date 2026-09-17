@@ -37,6 +37,32 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"role": "user", "content": content}]
 
 
+def limit_retrieval(row: dict[str, Any], top_k: int) -> dict[str, Any]:
+    if top_k < 1:
+        raise ValueError("top_k must be >= 1")
+    retrieval = list(row.get("retrieval", []))
+    if len(retrieval) < top_k:
+        raise ValueError(
+            f"Row {row.get('id')} only has {len(retrieval)} retrieved cases; "
+            f"cannot select top-{top_k}"
+        )
+    if len(retrieval) <= top_k:
+        return row
+    limited = dict(row)
+    limited["retrieval"] = retrieval[:top_k]
+    config = dict(limited.get("retrieval_config") or {})
+    config["top_k"] = top_k
+    source_top_k = (
+        row.get("retrieval_config", {}).get("top_k")
+        if isinstance(row.get("retrieval_config"), dict)
+        else None
+    )
+    if source_top_k is not None:
+        config["source_top_k"] = source_top_k
+    limited["retrieval_config"] = config
+    return limited
+
+
 def _open_all_images(row: dict[str, Any], max_pixels: int) -> list[Any]:
     from PIL import Image
 
@@ -123,12 +149,15 @@ def generate_dataset(
     shard_index: int = 0,
     num_shards: int = 1,
     enable_thinking: bool = False,
+    top_k: int | None = None,
 ) -> None:
     import torch
 
     if batch_size < 1:
         raise ValueError("generation batch_size must be >= 1")
     rows = read_jsonl(retrieval_path)
+    if top_k is not None:
+        rows = [limit_retrieval(row, top_k) for row in rows]
     if num_shards < 1 or not 0 <= shard_index < num_shards:
         raise ValueError(f"invalid shard {shard_index}/{num_shards}")
     if num_shards > 1:

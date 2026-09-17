@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from rag_eval.data import DatasetFiles, example_answer_of, retrieval_text_of, validate_pair
 from rag_eval.evaluate_online import is_incomplete_response, normalize_rows, requested_metrics
 from rag_eval.evaluate_safety_alignment_outputs import (
@@ -10,7 +12,8 @@ from rag_eval.evaluate_safety_alignment_outputs import (
     MSS_EMBODIED_JUDGE_PROMPT,
     build_general_task,
 )
-from rag_eval.generate import build_rag_messages, visible_answer
+from rag_eval.generate import build_rag_messages, limit_retrieval, visible_answer
+from rag_eval.run_rag_eval import resolve_generation_retrieval
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -63,6 +66,54 @@ def test_rag_message_image_order_and_visible_answer() -> None:
     assert sum(block["type"] == "image" for block in content) == 3
     assert "example answer" in content[-2]["text"]
     assert visible_answer("reasoning</think>final") == "final"
+
+
+def test_limit_retrieval_slices_precomputed_top10_rows() -> None:
+    row = {
+        "id": "q1",
+        "prompt": "current question",
+        "retrieval": [
+            {
+                "id": f"r{index}",
+                "prompt": f"question {index}",
+                "answer": f"answer {index}",
+                "score": 1.0 / index,
+            }
+            for index in range(1, 11)
+        ],
+        "retrieval_config": {"top_k": 10},
+    }
+
+    limited = limit_retrieval(row, 3)
+    content = build_rag_messages(limited)[0]["content"]
+
+    assert [example["id"] for example in limited["retrieval"]] == ["r1", "r2", "r3"]
+    assert limited["retrieval_config"]["top_k"] == 3
+    assert limited["retrieval_config"]["source_top_k"] == 10
+    assert "Example 3" in content[-2]["text"]
+    assert "Example 4" not in content[-2]["text"]
+
+    with pytest.raises(ValueError, match="only has 10 retrieved cases"):
+        limit_retrieval(row, 11)
+
+
+def test_generation_always_slices_top10_for_k_up_to_ten(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "demo"
+    dataset_dir.mkdir()
+    retrieval = dataset_dir / "retrieval_qwen3.7_plus_merged.jsonl"
+    test = dataset_dir / "test.jsonl"
+    top3 = dataset_dir / "test_qwen3vl_embedding_top3.jsonl"
+    top10 = dataset_dir / "test_qwen3vl_embedding_top10.jsonl"
+    for path in (retrieval, test, top3, top10):
+        path.touch()
+    files = DatasetFiles("demo", retrieval, test)
+
+    selected, selected_k = resolve_generation_retrieval(files, tmp_path / "results", 3)
+
+    assert selected == top10
+    assert selected_k == 3
+    with pytest.raises(ValueError, match="exceeds precomputed top10"):
+        resolve_generation_retrieval(files, tmp_path / "results", 11)
 
 
 def test_online_eval_keeps_truncated_and_unclosed_thinking_outputs() -> None:
