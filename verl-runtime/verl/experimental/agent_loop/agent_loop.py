@@ -28,6 +28,7 @@ and is designed to be fully replaceable by other agent frameworks such as:
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import random
@@ -491,10 +492,23 @@ class AgentLoopWorker:
         self.teacher_use_privileged_info = str(configured_privileged).strip().lower() in {
             "1", "true", "yes", "on"
         }
+        self.rollout_mixture_enabled = False
+        self.rollout_mixture_off_policy_ratio = 0.0
+        self.rollout_mixture_field = "golden_response"
         if self.distillation_enabled:
             from verl.experimental.teacher_loop.teacher_manager import AsyncTeacherLLMServerManager
 
             self.teacher_key: str = config.distillation.teacher_key
+            self.rollout_mixture_enabled = self._as_bool(config.distillation.get("rollout_mixture_enabled", False))
+            self.rollout_mixture_off_policy_ratio = float(
+                config.distillation.get("rollout_mixture_off_policy_ratio", 0.0)
+            )
+            self.rollout_mixture_field = str(config.distillation.get("rollout_mixture_field", "golden_response"))
+            if not 0.0 <= self.rollout_mixture_off_policy_ratio <= 1.0:
+                raise ValueError(
+                    "distillation.rollout_mixture_off_policy_ratio must be in [0, 1], "
+                    f"got {self.rollout_mixture_off_policy_ratio}."
+                )
             self.teacher_server_manager = AsyncTeacherLLMServerManager(
                 config=config,
                 teacher_client=teacher_client,
@@ -670,7 +684,74 @@ class AgentLoopWorker:
                 tools=ToolListWrap(self.tools),
             )
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
-            return await self._agent_loop_postprocess(output, trajectory["validate"], **kwargs)
+            return await self._agent_loop_postprocess(output, trajectory["validate"], trajectory=trajectory, **kwargs)
+
+    @staticmethod
+    def _stable_unit_interval(value: str) -> float:
+        digest = hashlib.sha256(value.encode("utf-8")).digest()
+        return int.from_bytes(digest[:8], byteorder="big", signed=False) / float(1 << 64)
+
+    @staticmethod
+    def _as_bool(value: Any) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def _normalize_extra_info(value: Any) -> dict[str, Any]:
+        if isinstance(value, np.ndarray) and value.ndim == 0:
+            value = value.item()
+        return value if isinstance(value, dict) else {}
+
+    def _select_rollout_mixture_source(self, trajectory: dict[str, Any], kwargs: dict[str, Any]) -> str:
+        if not self.rollout_mixture_enabled or self.rollout_mixture_off_policy_ratio <= 0.0:
+            return "on_policy"
+        if self.rollout_mixture_off_policy_ratio >= 1.0:
+            return "golden"
+        sample_id = trajectory.get("sample_index", kwargs.get("index", ""))
+        rollout_n = trajectory.get("rollout_n", 0)
+        step = trajectory.get("step", -1)
+        draw = self._stable_unit_interval(f"{step}:{sample_id}:{rollout_n}")
+        return "golden" if draw < self.rollout_mixture_off_policy_ratio else "on_policy"
+
+    def _maybe_apply_rollout_mixture(
+        self,
+        output: AgentLoopOutput,
+        validate: bool,
+        trajectory: dict[str, Any] | None,
+        kwargs: dict[str, Any],
+    ) -> None:
+        if validate or trajectory is None:
+            output.extra_fields["rollout_source"] = "on_policy"
+            return
+
+        source = self._select_rollout_mixture_source(trajectory, kwargs)
+        output.extra_fields["rollout_source"] = source
+        if source != "golden":
+            return
+
+        extra_info = self._normalize_extra_info(kwargs.get("extra_info"))
+        golden_text = str(extra_info.get(self.rollout_mixture_field) or "").strip()
+        if not golden_text:
+            output.extra_fields["rollout_source"] = "on_policy_missing_golden"
+            return
+
+        golden_ids = self.tokenizer.encode(golden_text, add_special_tokens=False)
+        eos_token_id = self.tokenizer.eos_token_id
+        if eos_token_id is not None and (not golden_ids or golden_ids[-1] != eos_token_id):
+            golden_ids.append(eos_token_id)
+        golden_ids = golden_ids[: self.rollout_config.response_length]
+        if not golden_ids:
+            output.extra_fields["rollout_source"] = "on_policy_empty_golden"
+            return
+
+        output.response_ids = golden_ids
+        output.response_mask = [1] * len(golden_ids)
+        # The golden response was not sampled by the rollout engine, so rollout
+        # logprobs are intentionally absent. The current direct-distillation
+        # path recomputes actor logprobs before optimization.
+        output.response_logprobs = None
+        output.extra_fields["rollout_mixture_golden_length"] = len(golden_ids)
 
     def _pad_token_ids(
         self,
@@ -703,9 +784,16 @@ class AgentLoopWorker:
                 padded["attention_mask"] = padded["attention_mask"].unsqueeze(0)
         return padded
 
-    async def _agent_loop_postprocess(self, output, validate, **kwargs) -> _InternalAgentLoopOutput:
+    async def _agent_loop_postprocess(
+        self,
+        output,
+        validate,
+        trajectory: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> _InternalAgentLoopOutput:
         """Perform post-processing operations on the output of each individual agent loop."""
         output.extra_fields["raw_prompt"] = kwargs["raw_prompt"]
+        self._maybe_apply_rollout_mixture(output, validate, trajectory, kwargs)
 
         # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
 
@@ -1082,8 +1170,14 @@ class AgentLoopWorker:
         input_ids = torch.cat([input.input_ids for input in inputs], dim=0)
         position_ids = torch.cat([input.position_ids for input in inputs], dim=0)
         optional_outputs = {}
-        if inputs[0].response_logprobs is not None:
-            optional_outputs["rollout_log_probs"] = torch.cat([input.response_logprobs for input in inputs], dim=0)
+        if self.rollout_config.calculate_log_probs:
+            rollout_log_probs = []
+            for input in inputs:
+                if input.response_logprobs is None:
+                    rollout_log_probs.append(torch.zeros_like(input.response_mask, dtype=torch.float32))
+                else:
+                    rollout_log_probs.append(input.response_logprobs)
+            optional_outputs["rollout_log_probs"] = torch.cat(rollout_log_probs, dim=0)
         if inputs[0].routed_experts is not None:
             optional_outputs["routed_experts"] = torch.cat([input.routed_experts for input in inputs], dim=0)
         if inputs[0].teacher_logprobs is not None and inputs[0].teacher_ids is not None:

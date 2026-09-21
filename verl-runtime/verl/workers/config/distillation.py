@@ -237,6 +237,14 @@ class DistillationConfig(BaseConfig):
         Whether the teacher receives the optional privileged context. This is
         consumed by the agent loop and defaults to false for backwards
         compatibility.
+    rollout_mixture_enabled (bool):
+        Whether to replace a fraction of on-policy rollouts with off-policy
+        golden responses from dataset metadata before teacher scoring.
+    rollout_mixture_off_policy_ratio (float):
+        Fraction of training samples that should use the off-policy/golden
+        response when rollout mixture is enabled.
+    rollout_mixture_field (str):
+        Field name inside ``extra_info`` that stores the golden response text.
     distillation_loss (DistillationLossConfig):
     Configuration for distillation loss settings.
 
@@ -269,11 +277,27 @@ class DistillationConfig(BaseConfig):
     teacher_models: dict[str, DistillationTeacherModelConfig] = field(default_factory=dict)
     teacher_key: str = "data_source"
     use_privileged_info: bool = False
+    rollout_mixture_enabled: bool = False
+    rollout_mixture_off_policy_ratio: float = 0.0
+    rollout_mixture_field: str = "golden_response"
     distillation_loss: DistillationLossConfig = field(default_factory=DistillationLossConfig)
 
     def __post_init__(self):
         if not self.enabled:
             return
+
+        if not 0.0 <= self.rollout_mixture_off_policy_ratio <= 1.0:
+            raise ValueError(
+                "rollout_mixture_off_policy_ratio must be in [0, 1], "
+                f"got {self.rollout_mixture_off_policy_ratio}."
+            )
+        if self.rollout_mixture_enabled and not self.rollout_mixture_field:
+            raise ValueError("rollout_mixture_field must be non-empty when rollout mixture is enabled.")
+        if self.rollout_mixture_enabled and self.distillation_loss.use_policy_gradient:
+            print(
+                "WARNING: rollout mixture is intended for direct distillation "
+                "(use_policy_gradient=False). Golden/off-policy responses do not have true rollout logprobs."
+            )
 
         self.teacher_models = self._resolve_teacher_models()
         teacher_world_size_sum = 0

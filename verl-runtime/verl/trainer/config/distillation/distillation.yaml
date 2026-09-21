@@ -111,3 +111,10 @@ teacher_models:
 
 # Key to route examples to the appropriate teacher model in multi-teacher setups. Should correspond to a field in the data proto, e.g., task.
 teacher_key: data_source
+
+# Rollout-mixture distillation: replace a deterministic fraction of on-policy
+# student rollouts with off-policy/golden responses from dataset extra_info
+# before teacher scoring and actor update. Disabled by default.
+rollout_mixture_enabled: false
+rollout_mixture_off_policy_ratio: 0.0
+rollout_mixture_field: golden_response

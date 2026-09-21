@@ -157,7 +157,7 @@ ROLLOUT_ENABLE_PREFIX_CACHING="${ROLLOUT_ENABLE_PREFIX_CACHING:-true}"
 # --- OPD teacher 与蒸馏损失 --------------------------------------------------
 # 是否启用蒸馏。当前脚本必须为 true；false 会退化为无有效 reward 的训练。
 DISTILLATION_ENABLED="${DISTILLATION_ENABLED:-true}"
-# loss 类型。可选：k3（推荐直接反传）、forward_kl_topk（更完整但更耗算力）、k1（仅配 PG），以及 kl/abs/mse/k2/low_var_kl。
+# loss 类型。可选：k3（推荐直接反传）、rollout_mixture_k3、forward_kl_topk（更完整但更耗算力）、k1（仅配 PG），以及 kl/abs/mse/k2/low_var_kl。
 DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
 # teacher/student top-k 数。仅 forward_kl_topk 使用；越大越接近完整分布、越耗显存和带宽。
 DISTILLATION_TOPK="${DISTILLATION_TOPK:-128}"
@@ -167,6 +167,29 @@ DISTILLATION_LOSS_COEF="${DISTILLATION_LOSS_COEF:-1.0}"
 USE_TASK_REWARDS="${USE_TASK_REWARDS:-false}"
 # 是否把蒸馏差异当作 policy-gradient reward。false 为直接反传（配 k3/top-k）；true 应配 k1。
 USE_POLICY_GRADIENT="${USE_POLICY_GRADIENT:-false}"
+# rollout mixture distillation：按比例用数据里的 golden response 替换 on-policy rollout，降低退化 rollout 主导训练的风险。
+ROLLOUT_MIXTURE_ENABLED="${ROLLOUT_MIXTURE_ENABLED:-false}"
+# golden/off-policy 样本占比，范围 0~1。仅 ROLLOUT_MIXTURE_ENABLED=true 时生效。
+ROLLOUT_MIXTURE_OFF_POLICY_RATIO="${ROLLOUT_MIXTURE_OFF_POLICY_RATIO:-0.0}"
+# golden response 在 extra_info 中的字段名；prepare_verl_data.py 默认写入 golden_response。
+ROLLOUT_MIXTURE_FIELD="${ROLLOUT_MIXTURE_FIELD:-golden_response}"
+case "${DISTILLATION_LOSS_MODE}" in
+  rollout_mixture|rollout_mixture_k3)
+    DISTILLATION_LOSS_MODE="k3"
+    ROLLOUT_MIXTURE_ENABLED="true"
+    ENABLE_THINKING="true"
+    TEACHER_USE_PRIVILEGED_INFO="false"
+    if [[ "${ROLLOUT_MIXTURE_OFF_POLICY_RATIO}" == "0.0" ]]; then
+      ROLLOUT_MIXTURE_OFF_POLICY_RATIO="0.3"
+    fi
+    ;;
+esac
+if [[ "${ROLLOUT_MIXTURE_ENABLED}" == "true" ]]; then
+  # Mixture targets already contain the teacher reasoning, so both models must
+  # score the same user prompt without an extra teacher-only prefix.
+  ENABLE_THINKING="true"
+  TEACHER_USE_PRIVILEGED_INFO="false"
+fi
 # 蒸馏 loss 上界裁剪。正数或 null；降低可抑制异常大 loss。
 LOSS_MAX_CLAMP="${LOSS_MAX_CLAMP:-10.0}"
 # log-prob 下界裁剪。负数或 null；用于数值稳定。
@@ -301,7 +324,9 @@ render_training_config() {
     ROLLOUT_MAX_NUM_SEQS ROLLOUT_ENABLE_CHUNKED_PREFILL ROLLOUT_ENABLE_PREFIX_CACHING
   render_config_group "teacher_and_distillation" \
     DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK \
-    DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT LOSS_MAX_CLAMP \
+    DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT \
+    ROLLOUT_MIXTURE_ENABLED ROLLOUT_MIXTURE_OFF_POLICY_RATIO ROLLOUT_MIXTURE_FIELD \
+    LOSS_MAX_CLAMP \
     LOG_PROB_MIN_CLAMP USE_CHUNKED_TOPK CHUNKED_TOPK_CHUNK_SIZE \
     DISTILLATION_POLICY_LOSS_MODE DISTILLATION_CLIP_RATIO TEACHER_TP \
     TEACHER_GPU_MEMORY_UTILIZATION TEACHER_MAX_NUM_SEQS TEACHER_LOAD_FORMAT \
@@ -526,6 +551,9 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "distillation.distillation_loss.distillation_loss_coef=${DISTILLATION_LOSS_COEF}" \
   "distillation.distillation_loss.use_task_rewards=${USE_TASK_REWARDS}" \
   "distillation.distillation_loss.use_policy_gradient=${USE_POLICY_GRADIENT}" \
+  "distillation.rollout_mixture_enabled=${ROLLOUT_MIXTURE_ENABLED}" \
+  "distillation.rollout_mixture_off_policy_ratio=${ROLLOUT_MIXTURE_OFF_POLICY_RATIO}" \
+  "distillation.rollout_mixture_field=${ROLLOUT_MIXTURE_FIELD}" \
   "distillation.distillation_loss.loss_max_clamp=${LOSS_MAX_CLAMP}" \
   "distillation.distillation_loss.log_prob_min_clamp=${LOG_PROB_MIN_CLAMP}" \
   "+distillation.distillation_loss.use_chunked_topk=${USE_CHUNKED_TOPK}" \

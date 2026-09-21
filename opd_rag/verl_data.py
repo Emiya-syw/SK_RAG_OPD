@@ -10,6 +10,7 @@ from typing import Any, Iterable, Iterator
 QUESTION_KEYS = ("question", "prompt", "problem", "text")
 IMAGE_KEYS = ("image_path", "image", "images")
 ANSWER_KEYS = ("response", "reference_answer", "answer", "solution")
+GOLDEN_RESPONSE_KEYS = ("reference_answer", "response", "answer", "solution")
 EXAMPLE_KEYS = ("retrieved_examples", "retrieval_samples", "examples", "retrieval")
 
 
@@ -66,6 +67,21 @@ def _examples(value: Any) -> list[Any]:
     return [value]
 
 
+def _build_golden_response(record: dict[str, Any]) -> str:
+    """Build the off-policy target as teacher reasoning followed by the answer."""
+    demonstration = str(record.get("teacher_demonstration") or "").strip()
+    answer = str(_first(record, GOLDEN_RESPONSE_KEYS)).strip()
+    if demonstration:
+        # Keep the serialized target valid even if an upstream record already
+        # included thinking tags.
+        if demonstration.startswith("<think>") and demonstration.endswith("</think>"):
+            thinking = demonstration
+        else:
+            thinking = f"<think>\n{demonstration}\n</think>"
+        return f"{thinking}\n{answer}" if answer else thinking
+    return answer
+
+
 def build_prompt(record: dict[str, Any]) -> tuple[str, list[Any]]:
     """Build text with one ``<image>`` marker for each path in ``images``."""
     question = str(_first(record, QUESTION_KEYS)).strip()
@@ -119,6 +135,7 @@ def convert_record(
             raise FileNotFoundError(f"missing image(s): {', '.join(missing[:3])}")
 
     answer = str(_first(record, ANSWER_KEYS)).strip()
+    golden_response = _build_golden_response(record)
     record_id = str(record.get("id") or record.get("source_id") or index)
     return {
         "data_source": data_source,
@@ -136,6 +153,9 @@ def convert_record(
             # Kept out of the student prompt.  The agent loop may optionally
             # use this as teacher-only privileged context.
             "teacher_demonstration": record.get("teacher_demonstration", ""),
+            # Kept out of the student prompt. Rollout-mixture distillation can
+            # use this as an off-policy/golden response.
+            "golden_response": golden_response,
         },
     }
 
