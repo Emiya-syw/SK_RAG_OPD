@@ -50,6 +50,27 @@ def test_prompt_keeps_retrieval_context_without_case_specific_teacher_hint(tmp_p
     assert len(images) == 1
 
 
+def test_golden_response_uses_instruct_style_demonstration_and_answer(tmp_path):
+    record = sample_record(tmp_path)
+    record["teacher_demonstration"] = "Explain the relevant safety principle."
+
+    row = convert_record(record, 0)
+
+    assert row["extra_info"]["golden_response"] == (
+        "Explain the relevant safety principle.\n\nA safe answer."
+    )
+    assert "<think>" not in row["extra_info"]["golden_response"]
+
+
+def test_golden_response_removes_legacy_thinking_wrapper(tmp_path):
+    record = sample_record(tmp_path)
+    record["teacher_demonstration"] = "<think>\nConcise rationale.\n</think>"
+
+    row = convert_record(record, 0)
+
+    assert row["extra_info"]["golden_response"] == "Concise rationale.\n\nA safe answer."
+
+
 def test_convert_record_checks_image_paths(tmp_path):
     record = sample_record(tmp_path)
     record["image_path"] = str(tmp_path / "missing.jpg")

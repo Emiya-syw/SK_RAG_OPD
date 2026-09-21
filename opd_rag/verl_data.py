@@ -68,18 +68,12 @@ def _examples(value: Any) -> list[Any]:
 
 
 def _build_golden_response(record: dict[str, Any]) -> str:
-    """Build the off-policy target as teacher reasoning followed by the answer."""
+    """Build an Instruct-style off-policy target without hidden reasoning tags."""
     demonstration = str(record.get("teacher_demonstration") or "").strip()
     answer = str(_first(record, GOLDEN_RESPONSE_KEYS)).strip()
-    if demonstration:
-        # Keep the serialized target valid even if an upstream record already
-        # included thinking tags.
-        if demonstration.startswith("<think>") and demonstration.endswith("</think>"):
-            thinking = demonstration
-        else:
-            thinking = f"<think>\n{demonstration}\n</think>"
-        return f"{thinking}\n{answer}" if answer else thinking
-    return answer
+    if demonstration.startswith("<think>") and demonstration.endswith("</think>"):
+        demonstration = demonstration[len("<think>") : -len("</think>")].strip()
+    return "\n\n".join(part for part in (demonstration, answer) if part)
 
 
 def build_prompt(record: dict[str, Any]) -> tuple[str, list[Any]]:

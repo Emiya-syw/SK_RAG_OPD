@@ -177,7 +177,6 @@ case "${DISTILLATION_LOSS_MODE}" in
   rollout_mixture|rollout_mixture_k3)
     DISTILLATION_LOSS_MODE="k3"
     ROLLOUT_MIXTURE_ENABLED="true"
-    ENABLE_THINKING="true"
     TEACHER_USE_PRIVILEGED_INFO="false"
     if [[ "${ROLLOUT_MIXTURE_OFF_POLICY_RATIO}" == "0.0" ]]; then
       ROLLOUT_MIXTURE_OFF_POLICY_RATIO="0.3"
@@ -185,9 +184,8 @@ case "${DISTILLATION_LOSS_MODE}" in
     ;;
 esac
 if [[ "${ROLLOUT_MIXTURE_ENABLED}" == "true" ]]; then
-  # Mixture targets already contain the teacher reasoning, so both models must
-  # score the same user prompt without an extra teacher-only prefix.
-  ENABLE_THINKING="true"
+  # Instruct-style mixture targets already include the demonstration, so both
+  # models score the same user prompt without an extra teacher-only prefix.
   TEACHER_USE_PRIVILEGED_INFO="false"
 fi
 # 蒸馏 loss 上界裁剪。正数或 null；降低可抑制异常大 loss。

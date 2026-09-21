@@ -156,7 +156,7 @@ DISTILLATION_LOSS_MODE=forward_kl_topk DISTILLATION_TOPK=128 \
   bash scripts/train_consistent.sh
 ```
 
-Rollout-mixture distillation 可按比例把 on-policy rollout 替换为数据中的 golden/off-policy response，降低训练分布被退化长 rollout 主导的风险。`prepare_verl_data.py` 会把 `teacher_demonstration` 包进 `<think>...</think>`，并紧接 `reference_answer/response` 写入 `extra_info.golden_response`。该模式会强制开启 thinking，并关闭 teacher-only privileged prompt，保证 teacher/student 评分提示词一致：
+Rollout-mixture distillation 可按比例把 on-policy rollout 替换为数据中的 golden/off-policy response，降低训练分布被退化长 rollout 主导的风险。`prepare_verl_data.py` 会按 Instruct 输出格式把 `teacher_demonstration` 和 `reference_answer/response` 以普通 assistant 文本拼接后写入 `extra_info.golden_response`，不会加入 `<think>` 标签。该模式保持默认的 thinking-off 配置，并关闭 teacher-only privileged prompt，保证 teacher/student 评分提示词一致：
 
 ```bash
 DISTILLATION_LOSS_MODE=rollout_mixture_k3 ROLLOUT_MIXTURE_OFF_POLICY_RATIO=0.3 \
