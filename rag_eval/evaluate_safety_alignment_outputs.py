@@ -957,7 +957,7 @@ def judge_one(
                 "model": judge_model,
                 "messages": [{"role": "user", "content": content}],
                 "temperature": 0,
-                "max_tokens": 256,
+                "max_tokens": 1024 if task.dataset == "mssbench" else 256,
             }
             if isinstance(client, UrlLibClient):
                 request["enable_thinking"] = enable_thinking
@@ -1010,6 +1010,8 @@ def run_judge_tasks(
         task = task_by_id.get(task_id)
         if task is None or row.get("status") != "valid" or row.get("judge_model") != args.judge_model:
             continue
+        if task.dataset == "mssbench" and not isinstance((row.get("parsed") or {}).get("label"), int):
+            continue
         # MSSBench's prompt is part of its official protocol.  Do not silently
         # reuse judgments made with an older, paraphrased rubric.
         if task.dataset == "mssbench":
@@ -1023,33 +1025,40 @@ def run_judge_tasks(
     if not remaining:
         return list(existing.values())
     client = make_client(args.api_key, args.base_url)
-    buffer = []
+    batch_size = int(getattr(args, "batch_size", 0) or len(remaining))
+    if batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
+    buffer: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [
-            executor.submit(
-                judge_one,
-                client,
-                task,
-                args.judge_model,
-                args.max_retries,
-                args.retry_sleep,
-                args.max_image_pixels,
-                args.enable_thinking,
-            )
-            for task in remaining
-        ]
-        for future in tqdm(
-            as_completed(futures),
-            total=len(futures),
-            desc=f"judge {output_path.parent.name}",
+        batch_starts = range(0, len(remaining), batch_size)
+        for start in tqdm(
+            batch_starts,
+            total=math.ceil(len(remaining) / batch_size),
+            desc=f"judge {output_path.parent.name} batches",
         ):
-            row = future.result()
-            buffer.append(row)
-            if len(buffer) >= args.flush_every:
+            batch = remaining[start : start + batch_size]
+            futures = [
+                executor.submit(
+                    judge_one,
+                    client,
+                    task,
+                    args.judge_model,
+                    args.max_retries,
+                    args.retry_sleep,
+                    args.max_image_pixels,
+                    args.enable_thinking,
+                )
+                for task in batch
+            ]
+            for future in as_completed(futures):
+                buffer.append(future.result())
+                if len(buffer) >= args.flush_every:
+                    append_jsonl(output_path, buffer)
+                    buffer.clear()
+            # Make every completed batch independently resumable.
+            if buffer:
                 append_jsonl(output_path, buffer)
                 buffer.clear()
-    if buffer:
-        append_jsonl(output_path, buffer)
     return list(load_existing(output_path).values())
 
 

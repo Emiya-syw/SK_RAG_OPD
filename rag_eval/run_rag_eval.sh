@@ -6,7 +6,7 @@ cd "${repo_root}"
 
 python_bin="${PYTHON_BIN:-python}"
 base_model="${BASE_MODEL:-/home/sunyw/SK_RAG_OPD/models/Qwen3-VL-2B-Thinking}"
-adapter="${ADAPTER_PATH:-/home/sunyw/SK_RAG_OPD/outputs/consistent/}"
+adapter="${ADAPTER_PATH-/home/sunyw/SK_RAG_OPD/outputs/consistent/}"
 output_dir="${OUTPUT_DIR:-${repo_root}/rag_eval/results/test_V1}"
 read -r -a dataset_args <<< "${DATASETS:-VLGuard}"
 

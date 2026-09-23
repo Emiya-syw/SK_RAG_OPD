@@ -7,6 +7,8 @@ rag_eval/cache/
 rag_eval/results/
 rag_eval/evaluation/
 rag_eval/data/
+rag_eval/mid_file/*
+!rag_eval/mid_file/run_five_models_mssbench_batch.sh
 !data/.gitkeep
 models/
 outputs/

@@ -8,6 +8,20 @@ from opd_rag.verl_data import INSTRUCTION
 from rag_eval.data import read_jsonl, write_jsonl
 
 
+def rag_question_of(row: dict[str, Any]) -> str:
+    """Use the raw user question when a benchmark prompt wraps it."""
+    prompt = str(row.get("prompt") or "").strip()
+    dataset = str(row.get("dataset") or "").lower()
+    if dataset == "mssbench":
+        metadata = row.get("metadata")
+        if isinstance(metadata, dict) and str(metadata.get("question") or "").strip():
+            return str(metadata["question"]).strip()
+        for marker in ("The user query is:", "Your task is:"):
+            if marker in prompt:
+                return prompt.split(marker, 1)[1].strip()
+    return prompt
+
+
 def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = [
         {"type": "text", "text": "Current Image\n\n"},
@@ -17,7 +31,10 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
     content.append(
         {
             "type": "text",
-            "text": f"\n\nCurrent Question\n\n{row['prompt']}\n\nRetrieved Examples\n\n",
+            "text": (
+                f"\n\nCurrent Question\n\n{rag_question_of(row)}"
+                "\n\nRetrieved Examples\n\n"
+            ),
         }
     )
     for index, example in enumerate(row.get("retrieval", []), start=1):
@@ -28,7 +45,7 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
                 "type": "text",
                 "text": (
                     f"Example {index} | score={float(example['score']):.4f}\n"
-                    f"Question\n{example['prompt']}\n\n"
+                    f"Question\n{rag_question_of(example)}\n\n"
                     f"Response\n{example['answer']}\n\n"
                 ),
             }
