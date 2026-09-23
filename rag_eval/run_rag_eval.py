@@ -17,8 +17,10 @@ DEFAULT_PRECOMPUTED_TOP_K = 10
 
 
 def resolve_generation_retrieval(
-    files: DatasetFiles, output_dir: Path, top_k: int
+    files: DatasetFiles, output_dir: Path, top_k: int, direct_generation: bool = False
 ) -> tuple[Path, int | None]:
+    if direct_generation:
+        return files.test, None
     if top_k < 1:
         raise ValueError("--top-k must be >= 1")
 
@@ -73,6 +75,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--direct-generation", action="store_true",
+                        help="Generate from each dataset's test.jsonl prompt without retrieved cases")
     parser.add_argument("--progress-every", type=int, default=20)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
@@ -131,7 +135,7 @@ def main() -> None:
         if path is not None and not path.exists():
             raise FileNotFoundError(f"Missing {label}: {path}")
     generation_inputs = [
-        (files, *resolve_generation_retrieval(files, args.output_dir, args.top_k))
+        (files, *resolve_generation_retrieval(files, args.output_dir, args.top_k, args.direct_generation))
         for files in datasets
     ]
     model, processor = load_generator(
@@ -157,6 +161,7 @@ def main() -> None:
             num_shards=args.num_shards,
             enable_thinking=args.enable_thinking,
             top_k=generation_top_k,
+            direct_generation=args.direct_generation,
         )
 
 

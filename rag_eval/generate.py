@@ -54,6 +54,14 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"role": "user", "content": content}]
 
 
+def build_direct_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
+    content: list[dict[str, Any]] = []
+    for _ in row.get("images", []):
+        content.append({"type": "image"})
+    content.append({"type": "text", "text": str(row.get("prompt") or "").strip()})
+    return [{"role": "user", "content": content}]
+
+
 def limit_retrieval(row: dict[str, Any], top_k: int) -> dict[str, Any]:
     if top_k < 1:
         raise ValueError("top_k must be >= 1")
@@ -88,6 +96,25 @@ def _open_all_images(row: dict[str, Any], max_pixels: int) -> list[Any]:
         paths.extend(example.get("images", []))
     images: list[Any] = []
     for value in paths:
+        path = Path(value)
+        if not path.is_file():
+            raise FileNotFoundError(f"Image for {row.get('id')}: {path}")
+        image = Image.open(path).convert("RGB")
+        if max_pixels and image.width * image.height > max_pixels:
+            scale = (max_pixels / float(image.width * image.height)) ** 0.5
+            image = image.resize(
+                (max(1, int(image.width * scale)), max(1, int(image.height * scale))),
+                Image.Resampling.LANCZOS,
+            )
+        images.append(image)
+    return images
+
+
+def _open_current_images(row: dict[str, Any], max_pixels: int) -> list[Any]:
+    from PIL import Image
+
+    images: list[Any] = []
+    for value in row.get("images", []):
         path = Path(value)
         if not path.is_file():
             raise FileNotFoundError(f"Image for {row.get('id')}: {path}")
@@ -167,13 +194,14 @@ def generate_dataset(
     num_shards: int = 1,
     enable_thinking: bool = False,
     top_k: int | None = None,
+    direct_generation: bool = False,
 ) -> None:
     import torch
 
     if batch_size < 1:
         raise ValueError("generation batch_size must be >= 1")
     rows = read_jsonl(retrieval_path)
-    if top_k is not None:
+    if top_k is not None and not direct_generation:
         rows = [limit_retrieval(row, top_k) for row in rows]
     if num_shards < 1 or not 0 <= shard_index < num_shards:
         raise ValueError(f"invalid shard {shard_index}/{num_shards}")
@@ -185,11 +213,13 @@ def generate_dataset(
         output_path.unlink()
     for start in range(0, len(pending), batch_size):
         batch_rows = pending[start : start + batch_size]
-        batch_images = [_open_all_images(row, max_image_pixels) for row in batch_rows]
+        open_images = _open_current_images if direct_generation else _open_all_images
+        build_messages = build_direct_messages if direct_generation else build_rag_messages
+        batch_images = [open_images(row, max_image_pixels) for row in batch_rows]
         try:
             texts = [
                 processor.apply_chat_template(
-                    build_rag_messages(row), tokenize=False, add_generation_prompt=True,
+                    build_messages(row), tokenize=False, add_generation_prompt=True,
                     **chat_template_kwargs(enable_thinking),
                 )
                 for row in batch_rows
@@ -226,7 +256,7 @@ def generate_dataset(
             results.append(
                 {
                     **row,
-                    "mode": "rag",
+                    "mode": "direct" if direct_generation else "rag",
                     "base_model": str(base_model),
                     "adapter": str(adapter) if adapter is not None else None,
                     "generation_batch_size": batch_size,

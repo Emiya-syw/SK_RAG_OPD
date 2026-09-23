@@ -12,7 +12,7 @@ from rag_eval.evaluate_safety_alignment_outputs import (
     MSS_EMBODIED_JUDGE_PROMPT,
     build_general_task,
 )
-from rag_eval.generate import build_rag_messages, limit_retrieval, visible_answer
+from rag_eval.generate import build_direct_messages, build_rag_messages, limit_retrieval, visible_answer
 from rag_eval.run_rag_eval import resolve_generation_retrieval
 
 
@@ -68,6 +68,29 @@ def test_rag_message_image_order_and_visible_answer() -> None:
     assert visible_answer("reasoning</think>final") == "final"
 
 
+def test_direct_message_uses_only_current_prompt_and_images() -> None:
+    row = {
+        "id": "q1",
+        "prompt": "answer the current question",
+        "images": ["current.jpg"],
+        "retrieval": [
+            {
+                "id": "r1",
+                "prompt": "example question",
+                "images": ["example.jpg"],
+                "answer": "example answer",
+                "score": 0.75,
+            }
+        ],
+    }
+
+    content = build_direct_messages(row)[0]["content"]
+
+    assert sum(block["type"] == "image" for block in content) == 1
+    assert content[-1]["text"] == "answer the current question"
+    assert "example answer" not in content[-1]["text"]
+
+
 def test_limit_retrieval_slices_precomputed_top10_rows() -> None:
     row = {
         "id": "q1",
@@ -112,6 +135,7 @@ def test_generation_always_slices_top10_for_k_up_to_ten(tmp_path: Path) -> None:
 
     assert selected == top10
     assert selected_k == 3
+    assert resolve_generation_retrieval(files, tmp_path / "results", 3, direct_generation=True) == (test, None)
     with pytest.raises(ValueError, match="exceeds precomputed top10"):
         resolve_generation_retrieval(files, tmp_path / "results", 11)
 
