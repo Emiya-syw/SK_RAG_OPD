@@ -102,8 +102,9 @@ PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-8}"
 MICRO_BATCH_SIZE="${MICRO_BATCH_SIZE:-1}"
 # 动态按 token 组 batch。可选：true/false；true 更充分利用 MAX_TOKEN_LEN_PER_GPU。
 USE_DYNAMIC_BSZ="${USE_DYNAMIC_BSZ:-true}"
-# 每张 GPU 每个 actor micro-batch 的最大 token 总数；减小可缓解 OOM。
-MAX_TOKEN_LEN_PER_GPU="${MAX_TOKEN_LEN_PER_GPU:-8192}"
+# 每张 GPU 每个 actor micro-batch 的最大 token 总数。动态 batch 要求它不小于
+# 任一条 prompt + response，因此默认与 vLLM 总上下文长度保持一致。
+MAX_TOKEN_LEN_PER_GPU="${MAX_TOKEN_LEN_PER_GPU:-${MAX_MODEL_LEN}}"
 # 同一批 rollout 重复 actor 更新次数。正整数；增大数据利用率，也增加过拟合/离策略程度。
 PPO_EPOCHS="${PPO_EPOCHS:-1}"
 # loss 聚合。常用：token-mean、seq-mean-token-sum、seq-mean-token-mean；影响长短回答权重。

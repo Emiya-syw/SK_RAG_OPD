@@ -638,6 +638,13 @@ class RayWorkerGroup(WorkerGroup):
             "MASTER_ADDR": self._master_addr,
             "MASTER_PORT": self._master_port,
         }
+        # Actor-level runtime_env replaces the parent's env_vars mapping. Keep
+        # launcher-provided NCCL transport overrides on the actual GPU workers;
+        # this is required on hosts where CUDA peer access is unavailable.
+        for key in ("NCCL_P2P_DISABLE", "NCCL_IB_DISABLE"):
+            value = os.environ.get(key)
+            if value is not None:
+                env_vars[key] = value
         if worker_env is not None:
             logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
             conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())

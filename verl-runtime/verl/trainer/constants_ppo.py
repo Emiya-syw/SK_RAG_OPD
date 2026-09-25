@@ -147,6 +147,10 @@ def get_ppo_ray_runtime_env(config=None):
         "FLASH_ATTENTION_DETERMINISTIC",
         "NCCL_DETERMINISTIC",
         "NCCL_ALGO",
+        # Ray workers do not reliably inherit NCCL settings from the launcher,
+        # especially when attaching to an existing local Ray runtime. Forward
+        # this explicitly for hosts whose GPUs do not support CUDA peer access.
+        "NCCL_P2P_DISABLE",
     ):
         val = os.environ.get(key)
         if val is not None:
