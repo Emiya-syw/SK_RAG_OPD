@@ -73,8 +73,9 @@ seed: null
 # num dataloader workers
 dataloader_num_workers: 8
 
-# image patch size
-image_patch_size: 14
+# Infer from the model processor; a fixed 14 disagrees with Qwen3-VL's 16
+# during dataset filtering and can admit prompts that exceed the rollout limit.
+image_patch_size: null
 
 # Whether to shuffle the validation set.
 validation_shuffle: False

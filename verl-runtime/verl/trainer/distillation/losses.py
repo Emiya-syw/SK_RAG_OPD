@@ -108,15 +108,21 @@ def get_distillation_loss_settings(loss_name: str) -> DistillationLossSettings:
 
 def compute_distillation_loss_range(
     distillation_losses: torch.Tensor, response_mask: torch.Tensor
-) -> dict[str, Metric]:
+) -> dict[str, float]:
     """Compute min and max distillation loss over valid response tokens."""
     if response_mask.is_nested:
         distillation_losses_response = distillation_losses[response_mask.bool().to_padded_tensor(False)]
     else:
         distillation_losses_response = distillation_losses[response_mask.bool()]
+    if distillation_losses_response.numel() == 0:
+        return {}
+    # Plain diagnostic values allow ranks/microbatches with no valid tokens to
+    # omit observations. Metric.aggregate_dp requires equal observation counts
+    # on all ranks, which synthetic padding does not guarantee. The standard
+    # reducer uses the min/max key names to preserve extrema across observations.
     return {
-        "distillation/loss_min": Metric(AggregationType.MIN, distillation_losses_response.min()),
-        "distillation/loss_max": Metric(AggregationType.MAX, distillation_losses_response.max()),
+        "distillation/loss_min": distillation_losses_response.min().item(),
+        "distillation/loss_max": distillation_losses_response.max().item(),
     }
 
 
@@ -330,6 +336,11 @@ def compute_forward_kl_topk(
         response_mask_bool = data["response_mask"].bool()
     assert distillation_losses.shape == student_mass.shape == teacher_mass.shape == response_mask_bool.shape
 
+    # Synthetic padding samples have no trainable response tokens. Keep the
+    # loss connected to the model for backward, but do not log empty statistics.
+    if not response_mask_bool.any():
+        return distillation_losses.clamp_min(0.0), {}
+
     overlap_metrics = {}
     if overlap_count is not None and overlap_token_advantage is not None:
         assert overlap_count.shape == overlap_token_advantage.shape == response_mask_bool.shape
@@ -353,11 +364,11 @@ def compute_forward_kl_topk(
     teacher_mass = teacher_mass[response_mask_bool]
     distillation_metrics = {
         "distillation/student_mass": student_mass.mean().item(),
-        "distillation/student_mass_min": Metric(AggregationType.MIN, student_mass.min()),
-        "distillation/student_mass_max": Metric(AggregationType.MAX, student_mass.max()),
+        "distillation/student_mass_min": student_mass.min().item(),
+        "distillation/student_mass_max": student_mass.max().item(),
         "distillation/teacher_mass": teacher_mass.mean().item(),
-        "distillation/teacher_mass_min": Metric(AggregationType.MIN, teacher_mass.min()),
-        "distillation/teacher_mass_max": Metric(AggregationType.MAX, teacher_mass.max()),
+        "distillation/teacher_mass_min": teacher_mass.min().item(),
+        "distillation/teacher_mass_max": teacher_mass.max().item(),
         **overlap_metrics,
     }
 
@@ -399,7 +410,6 @@ def compute_distillation_loss_reverse_kl_estimator(
         logprob=student_log_probs, ref_logprob=teacher_log_probs, kl_penalty=loss_config.loss_mode
     )
     # Since k1 can be negative, log the mean absolute loss.
-    metrics = {
-        "distillation/abs_loss": Metric(AggregationType.MEAN, distillation_losses[response_mask_bool].abs().mean()),
-    }
+    valid_losses = distillation_losses[response_mask_bool]
+    metrics = {"distillation/abs_loss": valid_losses.abs().mean().item()} if valid_losses.numel() else {}
     return distillation_losses, metrics

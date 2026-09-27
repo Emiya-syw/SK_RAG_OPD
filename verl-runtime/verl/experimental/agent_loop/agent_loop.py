@@ -294,7 +294,9 @@ class AgentLoopBase(ABC):
         """
         multi_modal_data = {}
         if self.processor is not None:
-            image_patch_size = getattr(getattr(self.processor, "image_processor", None), "patch_size", 14)
+            image_patch_size = self.data_config.get("image_patch_size") or getattr(
+                getattr(self.processor, "image_processor", None), "patch_size", 14
+            )
             if hasattr(self.dataset_cls, "process_multi_modal_info"):
                 images, videos, audios = await self.dataset_cls.process_multi_modal_info(
                     messages, image_patch_size=image_patch_size, config=self.data_config
