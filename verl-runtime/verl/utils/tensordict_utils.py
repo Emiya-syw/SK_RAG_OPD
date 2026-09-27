@@ -937,7 +937,31 @@ def maybe_fix_3d_position_ids(data: TensorDict):
     # will incur indexing error for ragged tensor. This only happens when using 3D position ids in VLMs.
     # This is likely a bug in tensordict. As a workaround, we manually set _ragged_index.
     if "position_ids" in data.keys() and data["position_ids"].dim() == 3 and data["position_ids"].is_nested:
-        data["position_ids"]._ragged_idx = 2
+        pos = data["position_ids"]
+        values = pos.values()
+        offsets = pos.offsets()
+        lengths = offsets.diff()
+        total = int(offsets[-1].item())
+        if values.ndim != 2:
+            raise ValueError(f"Unexpected position_ids values shape: {values.shape}")
+        if values.shape[0] == 4 and values.shape[1] == total:
+            # Sequence-packed storage; rebuild metadata without changing values.
+            fixed = torch.nested.nested_tensor_from_jagged(
+                values=values, offsets=offsets, jagged_dim=2
+            )
+        elif values.shape[0] == total and bool((lengths == 4).all()):
+            # Equal-length rows were packed along the four position axes.
+            fixed = nested_tensor_from_tensor_list(
+                list(values.split(4, dim=0)), ragged_idx=2
+            )
+        else:
+            raise ValueError(
+                f"Invalid position_ids: values={values.shape}, offsets={offsets.tolist()}"
+            )
+        ids = data.get("input_ids")
+        if ids is not None and ids.is_nested:
+            assert torch.equal(fixed.offsets().diff(), ids.offsets().diff()), "position_ids/input_ids length mismatch"
+        data["position_ids"] = fixed
 
 
 def list_of_dict_to_tensordict(list_of_dicts: list[dict[str, Any]]) -> TensorDict:
