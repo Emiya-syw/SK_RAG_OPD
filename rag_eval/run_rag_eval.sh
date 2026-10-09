@@ -52,6 +52,7 @@ args=(
   --embedding-model "${EMBEDDING_MODEL:-/home/sunyw/Qwen3-VL-Embedding/models/Qwen3-VL-Embedding-2B}"
   --base-model "${base_model}"
   --top-k "${TOP_K:-3}"
+  --prompt-mode "${PROMPT_MODE:-guided}"
   --embedding-batch-size "${EMBEDDING_BATCH_SIZE:-4}"
   --max-image-pixels "${MAX_IMAGE_PIXELS:-262144}"
   --max-new-tokens "${MAX_NEW_TOKENS:-1024}"

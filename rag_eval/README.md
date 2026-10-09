@@ -77,6 +77,27 @@ set `GENERATION_BATCH_SIZE=2` or `4` in `run_rag_eval.sh` when the model and
 image workload fit in GPU memory. A batch is written to the JSONL output only
 after all of its samples finish, and ID-based resume remains enabled.
 
+Choose the generation instruction with `PROMPT_MODE` (Python CLI:
+`--prompt-mode guided|basic`):
+
+- `guided` (default): the existing instruction explaining how to use retrieved examples.
+- `basic`: replace that instruction with exactly `You are a helpful assistant.`
+
+Both modes retain the same current question, images, and top-k retrieved examples.
+The instruction stays at the end of the user message so the comparison changes
+only its wording. This setting also works with `run_rag_online_eval.sh` and does
+not change the judge prompt. With `DIRECT_GENERATION=true`, no examples are used;
+`guided` preserves the original direct prompt and `basic` appends the basic instruction.
+
+```bash
+PROMPT_MODE=guided OUTPUT_DIR=rag_eval/results/guided bash rag_eval/run_rag_eval.sh
+PROMPT_MODE=basic OUTPUT_DIR=rag_eval/results/basic bash rag_eval/run_rag_eval.sh
+```
+
+Answers record `prompt_mode`. Use separate output directories when comparing
+modes: resume rejects answers from a different mode. Older answers without this
+field are treated as `guided`.
+
 For separate retrieval and generation GPUs or environments, run `STAGE=retrieve`
 first, then run the same command with `STAGE=generate`. The output layout is:
 

@@ -20,6 +20,7 @@ export STAGE="generate"
 # Retrieval/generation settings. Generation reads the precomputed retrieval
 # file when available and does not run the embedding model in this pipeline.
 export TOP_K="${TOP_K:-3}"
+export PROMPT_MODE="${PROMPT_MODE:-guided}" # guided | basic
 export GENERATION_BATCH_SIZE="${GENERATION_BATCH_SIZE:-1}"
 export MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1024}"
 export MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-262144}"

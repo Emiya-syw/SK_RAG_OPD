@@ -12,7 +12,10 @@ from rag_eval.evaluate_safety_alignment_outputs import (
     MSS_EMBODIED_JUDGE_PROMPT,
     build_general_task,
 )
-from rag_eval.generate import build_direct_messages, build_rag_messages, limit_retrieval, visible_answer
+from rag_eval.generate import (
+    BASIC_INSTRUCTION, _completed_ids, build_direct_messages, build_rag_messages,
+    limit_retrieval, visible_answer,
+)
 from rag_eval.run_rag_eval import resolve_generation_retrieval
 
 
@@ -89,6 +92,36 @@ def test_direct_message_uses_only_current_prompt_and_images() -> None:
     assert sum(block["type"] == "image" for block in content) == 1
     assert content[-1]["text"] == "answer the current question"
     assert "example answer" not in content[-1]["text"]
+
+
+def test_basic_prompt_preserves_retrieval_and_only_replaces_guidance() -> None:
+    row = {
+        "prompt": "current question", "images": ["current.jpg"],
+        "retrieval": [{"prompt": "example question", "images": ["example.jpg"],
+                       "answer": "example answer", "score": 0.75}],
+    }
+    guided = build_rag_messages(row)[0]["content"]
+    basic = build_rag_messages(row, "basic")[0]["content"]
+    assert basic[:-1] == guided[:-1]
+    assert basic[-1] == {"type": "text", "text": BASIC_INSTRUCTION}
+    assert "Use the retrieved examples" in guided[-1]["text"]
+    direct = build_direct_messages(row, "basic")[0]["content"]
+    assert direct[:-1] == build_direct_messages(row)[0]["content"]
+    assert direct[-1]["text"] == BASIC_INSTRUCTION
+    with pytest.raises(ValueError, match="Unknown prompt mode"):
+        build_rag_messages(row, "invalid")
+
+
+def test_resume_rejects_different_prompt_modes(tmp_path: Path) -> None:
+    path = tmp_path / "answers.jsonl"
+    _write_jsonl(path, [{"id": "old"}])
+    assert _completed_ids(path, "guided") == {"old"}
+    with pytest.raises(ValueError, match="Prompt mode differs"):
+        _completed_ids(path, "basic")
+    _write_jsonl(path, [{"id": "new", "prompt_mode": "basic"}])
+    assert _completed_ids(path, "basic") == {"new"}
+    with pytest.raises(ValueError, match="Prompt mode differs"):
+        _completed_ids(path, "guided")
 
 
 def test_limit_retrieval_slices_precomputed_top10_rows() -> None:

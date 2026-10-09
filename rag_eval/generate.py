@@ -7,6 +7,15 @@ from opd_rag.thinking import chat_template_kwargs
 from opd_rag.verl_data import INSTRUCTION
 from rag_eval.data import read_jsonl, write_jsonl
 
+PROMPT_MODES = ("guided", "basic")
+BASIC_INSTRUCTION = "You are a helpful assistant."
+
+
+def instruction_for(prompt_mode: str) -> str:
+    if prompt_mode not in PROMPT_MODES:
+        raise ValueError(f"Unknown prompt mode: {prompt_mode}; choose from {PROMPT_MODES}")
+    return INSTRUCTION if prompt_mode == "guided" else BASIC_INSTRUCTION
+
 
 def rag_question_of(row: dict[str, Any]) -> str:
     """Use the raw user question when a benchmark prompt wraps it."""
@@ -22,7 +31,7 @@ def rag_question_of(row: dict[str, Any]) -> str:
     return prompt
 
 
-def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
+def build_rag_messages(row: dict[str, Any], prompt_mode: str = "guided") -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = [
         {"type": "text", "text": "Current Image\n\n"},
     ]
@@ -50,15 +59,18 @@ def build_rag_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
                 ),
             }
         )
-    content.append({"type": "text", "text": INSTRUCTION})
+    content.append({"type": "text", "text": instruction_for(prompt_mode)})
     return [{"role": "user", "content": content}]
 
 
-def build_direct_messages(row: dict[str, Any]) -> list[dict[str, Any]]:
+def build_direct_messages(row: dict[str, Any], prompt_mode: str = "guided") -> list[dict[str, Any]]:
+    instruction_for(prompt_mode)
     content: list[dict[str, Any]] = []
     for _ in row.get("images", []):
         content.append({"type": "image"})
     content.append({"type": "text", "text": str(row.get("prompt") or "").strip()})
+    if prompt_mode == "basic":
+        content.append({"type": "text", "text": BASIC_INSTRUCTION})
     return [{"role": "user", "content": content}]
 
 
@@ -174,8 +186,14 @@ def visible_answer(text: str) -> str:
     return text.split("</think>", 1)[-1].strip() if "</think>" in text else text.strip()
 
 
-def _completed_ids(path: Path) -> set[str]:
-    return {str(row["id"]) for row in read_jsonl(path)} if path.is_file() else set()
+def _completed_ids(path: Path, prompt_mode: str = "guided") -> set[str]:
+    rows = read_jsonl(path) if path.is_file() else []
+    if any(row.get("prompt_mode", "guided") != prompt_mode for row in rows):
+        raise ValueError(
+            f"Prompt mode differs from existing answers in {path}; "
+            "use a different --output-dir or --no-resume."
+        )
+    return {str(row["id"]) for row in rows}
 
 
 def generate_dataset(
@@ -195,9 +213,11 @@ def generate_dataset(
     enable_thinking: bool = False,
     top_k: int | None = None,
     direct_generation: bool = False,
+    prompt_mode: str = "guided",
 ) -> None:
     import torch
 
+    instruction_for(prompt_mode)
     if batch_size < 1:
         raise ValueError("generation batch_size must be >= 1")
     rows = read_jsonl(retrieval_path)
@@ -207,7 +227,7 @@ def generate_dataset(
         raise ValueError(f"invalid shard {shard_index}/{num_shards}")
     if num_shards > 1:
         rows = rows[shard_index::num_shards]
-    done = _completed_ids(output_path) if resume else set()
+    done = _completed_ids(output_path, prompt_mode) if resume else set()
     pending = [row for row in rows if str(row["id"]) not in done]
     if output_path.exists() and not resume:
         output_path.unlink()
@@ -219,7 +239,7 @@ def generate_dataset(
         try:
             texts = [
                 processor.apply_chat_template(
-                    build_messages(row), tokenize=False, add_generation_prompt=True,
+                    build_messages(row, prompt_mode), tokenize=False, add_generation_prompt=True,
                     **chat_template_kwargs(enable_thinking),
                 )
                 for row in batch_rows
@@ -257,6 +277,7 @@ def generate_dataset(
                 {
                     **row,
                     "mode": "direct" if direct_generation else "rag",
+                    "prompt_mode": prompt_mode,
                     "base_model": str(base_model),
                     "adapter": str(adapter) if adapter is not None else None,
                     "generation_batch_size": batch_size,

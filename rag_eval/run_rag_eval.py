@@ -63,6 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--processor-path", type=Path)
     parser.add_argument("--top-k", type=int, default=3)
+    parser.add_argument("--prompt-mode", choices=("guided", "basic"), default="guided",
+                        help="Use retrieval guidance (default) or 'You are a helpful assistant.'")
     parser.add_argument("--embedding-batch-size", type=int, default=4)
     parser.add_argument("--search-batch-size", type=int, default=256)
     parser.add_argument("--embedding-max-length", type=int, default=8192)
@@ -162,6 +164,7 @@ def main() -> None:
             enable_thinking=args.enable_thinking,
             top_k=generation_top_k,
             direct_generation=args.direct_generation,
+            prompt_mode=args.prompt_mode,
         )
 
 
