@@ -13,7 +13,7 @@ from rag_eval.evaluate_safety_alignment_outputs import (
     build_general_task,
 )
 from rag_eval.generate import (
-    BASIC_INSTRUCTION, _completed_ids, build_direct_messages, build_rag_messages,
+    BASIC_INSTRUCTION, BASIC_RAG_INSTRUCTION, _completed_ids, build_direct_messages, build_rag_messages,
     limit_retrieval, visible_answer,
 )
 from rag_eval.run_rag_eval import resolve_generation_retrieval
@@ -103,7 +103,7 @@ def test_basic_prompt_preserves_retrieval_and_only_replaces_guidance() -> None:
     guided = build_rag_messages(row)[0]["content"]
     basic = build_rag_messages(row, "basic")[0]["content"]
     assert basic[:-1] == guided[:-1]
-    assert basic[-1] == {"type": "text", "text": BASIC_INSTRUCTION}
+    assert basic[-1] == {"type": "text", "text": BASIC_RAG_INSTRUCTION}
     assert "Use the retrieved examples" in guided[-1]["text"]
     direct = build_direct_messages(row, "basic")[0]["content"]
     assert direct[:-1] == build_direct_messages(row)[0]["content"]

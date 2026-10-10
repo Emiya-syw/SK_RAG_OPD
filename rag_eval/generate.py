@@ -9,12 +9,16 @@ from rag_eval.data import read_jsonl, write_jsonl
 
 PROMPT_MODES = ("guided", "basic")
 BASIC_INSTRUCTION = "You are a helpful assistant."
+BASIC_RAG_INSTRUCTION = (
+    BASIC_INSTRUCTION
+    + " You may refer to the retrieved examples when answering the current question."
+)
 
 
 def instruction_for(prompt_mode: str) -> str:
     if prompt_mode not in PROMPT_MODES:
         raise ValueError(f"Unknown prompt mode: {prompt_mode}; choose from {PROMPT_MODES}")
-    return INSTRUCTION if prompt_mode == "guided" else BASIC_INSTRUCTION
+    return INSTRUCTION if prompt_mode == "guided" else BASIC_RAG_INSTRUCTION
 
 
 def rag_question_of(row: dict[str, Any]) -> str:

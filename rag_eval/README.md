@@ -81,13 +81,13 @@ Choose the generation instruction with `PROMPT_MODE` (Python CLI:
 `--prompt-mode guided|basic`):
 
 - `guided` (default): the existing instruction explaining how to use retrieved examples.
-- `basic`: replace that instruction with exactly `You are a helpful assistant.`
+- `basic`: replace that instruction with `You are a helpful assistant. You may refer to the retrieved examples when answering the current question.`
 
 Both modes retain the same current question, images, and top-k retrieved examples.
 The instruction stays at the end of the user message so the comparison changes
 only its wording. This setting also works with `run_rag_online_eval.sh` and does
 not change the judge prompt. With `DIRECT_GENERATION=true`, no examples are used;
-`guided` preserves the original direct prompt and `basic` appends the basic instruction.
+`guided` preserves the original direct prompt and `basic` appends only `You are a helpful assistant.`
 
 ```bash
 PROMPT_MODE=guided OUTPUT_DIR=rag_eval/results/guided bash rag_eval/run_rag_eval.sh
