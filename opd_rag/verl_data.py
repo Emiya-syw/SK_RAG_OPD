@@ -12,6 +12,12 @@ IMAGE_KEYS = ("image_path", "image", "images")
 ANSWER_KEYS = ("response", "reference_answer", "answer", "solution")
 GOLDEN_RESPONSE_KEYS = ("reference_answer", "response", "answer", "solution")
 EXAMPLE_KEYS = ("retrieved_examples", "retrieval_samples", "examples", "retrieval")
+PROMPT_MODES = ("guided", "basic")
+BASIC_INSTRUCTION = "You are a helpful assistant."
+BASIC_RAG_INSTRUCTION = (
+    BASIC_INSTRUCTION
+    + " You may refer to the retrieved examples when answering the current question."
+)
 
 
 INSTRUCTION = """Instruction
@@ -36,6 +42,12 @@ cautious when the image or information is insufficient. If the request is unsafe
 apply the relevant safety principle from the examples, refuse only the unsafe
 part, and provide a safe alternative. If the image or information is
 insufficient, say so instead of guessing."""
+
+
+def instruction_for(prompt_mode: str) -> str:
+    if prompt_mode not in PROMPT_MODES:
+        raise ValueError(f"Unknown prompt mode: {prompt_mode}; choose from {PROMPT_MODES}")
+    return INSTRUCTION if prompt_mode == "guided" else BASIC_RAG_INSTRUCTION
 
 
 def _first(record: dict[str, Any], keys: tuple[str, ...], default: Any = "") -> Any:
@@ -76,8 +88,9 @@ def _build_golden_response(record: dict[str, Any]) -> str:
     return "\n\n".join(part for part in (demonstration, answer) if part)
 
 
-def build_prompt(record: dict[str, Any]) -> tuple[str, list[Any]]:
+def build_prompt(record: dict[str, Any], prompt_mode: str = "guided") -> tuple[str, list[Any]]:
     """Build text with one ``<image>`` marker for each path in ``images``."""
+    instruction = instruction_for(prompt_mode)
     question = str(_first(record, QUESTION_KEYS)).strip()
     if not question:
         raise ValueError("record has no question")
@@ -104,7 +117,7 @@ def build_prompt(record: dict[str, Any]) -> tuple[str, list[Any]]:
             parts.append(f"Example {index}\n{example}\n\n")
     if not examples:
         parts.append("N/A\n\n")
-    parts.append(INSTRUCTION)
+    parts.append(instruction)
     return "".join(parts), retrieved_with_images
 
 
@@ -115,12 +128,13 @@ def convert_record(
     image_root: str | Path | None = None,
     data_source: str = "sk_rag_opd",
     check_images: bool = True,
+    prompt_mode: str = "guided",
 ) -> dict[str, Any]:
     """Convert one source row into the schema consumed by veRL's RLHFDataset."""
     current_image = _first(record, IMAGE_KEYS, None)
     if current_image is None:
         raise ValueError("record has no image")
-    prompt, retrieved_images = build_prompt(record)
+    prompt, retrieved_images = build_prompt(record, prompt_mode)
     images = [_resolve_image(current_image, image_root)]
     images.extend(_resolve_image(value, image_root) for value in retrieved_images)
     if check_images:
@@ -142,6 +156,7 @@ def convert_record(
         "extra_info": {
             "index": index,
             "id": record_id,
+            "prompt_mode": prompt_mode,
             "question_type": record.get("question_type"),
             "input_safety_label": record.get("input_safety_label"),
             # Kept out of the student prompt.  The agent loop may optionally

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from opd_rag.verl_data import build_prompt, convert_record, iter_jsonl
+from opd_rag.verl_data import BASIC_RAG_INSTRUCTION, INSTRUCTION, build_prompt, convert_record, iter_jsonl
 from opd_rag.zero_reward import compute_score
 
 
@@ -60,6 +60,26 @@ def test_golden_response_uses_instruct_style_demonstration_and_answer(tmp_path):
         "Explain the relevant safety principle.\n\nA safe answer."
     )
     assert "<think>" not in row["extra_info"]["golden_response"]
+
+
+def test_prompt_mode_preserves_context_images_and_targets(tmp_path):
+    record = sample_record(tmp_path)
+    record["teacher_demonstration"] = "Teacher-only guidance."
+    guided = convert_record(record, 0)
+    basic = convert_record(record, 0, prompt_mode="basic")
+    assert guided["prompt"][0]["content"].endswith(INSTRUCTION)
+    assert basic["prompt"][0]["content"].endswith(BASIC_RAG_INSTRUCTION)
+    assert guided["prompt"][0]["content"][:-len(INSTRUCTION)] == (
+        basic["prompt"][0]["content"][:-len(BASIC_RAG_INSTRUCTION)]
+    )
+    assert basic["images"] == guided["images"]
+    assert basic["reward_model"] == guided["reward_model"]
+    assert basic["extra_info"]["prompt_mode"] == "basic"
+    assert guided["extra_info"]["prompt_mode"] == "guided"
+    for key in ("golden_response", "teacher_demonstration"):
+        assert basic["extra_info"][key] == guided["extra_info"][key]
+    with pytest.raises(ValueError, match="Unknown prompt mode"):
+        convert_record(record, 0, prompt_mode="invalid")
 
 
 def test_golden_response_removes_legacy_thinking_wrapper(tmp_path):

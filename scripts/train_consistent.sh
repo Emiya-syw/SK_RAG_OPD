@@ -26,7 +26,8 @@ prepared_file="${VERL_DATA_FILE:-${output_dir}/train.verl.jsonl}"
 # Python 可执行文件；默认 python3，也可设为 conda 环境中的绝对路径。
 python_bin="${PYTHON_BIN:-python3}"
 # 可选：SKIP_IMAGE_CHECK=false 会在训练前检查图片；true 跳过检查、准备更快但错误会延迟到 rollout。
-prepare_args=()
+# 提示词模式：guided（默认，详细指导）或 basic（简短指令，允许参考检索案例）。
+prepare_args=(--prompt-mode "${PROMPT_MODE:-guided}")
 if [[ "${SKIP_IMAGE_CHECK:-false}" == "true" ]]; then prepare_args+=(--skip-image-check); fi
 
 "${python_bin}" scripts/prepare_verl_data.py "${source_file}" "${prepared_file}" "${prepare_args[@]}"

@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from opd_rag.verl_data import convert_records, iter_jsonl
+from opd_rag.verl_data import PROMPT_MODES, convert_records, iter_jsonl
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("output", type=Path)
     parser.add_argument("--image-root", type=Path)
     parser.add_argument("--data-source", default="sk_rag_opd")
+    parser.add_argument("--prompt-mode", choices=PROMPT_MODES, default="guided")
     parser.add_argument("--skip-image-check", action="store_true")
     parser.add_argument("--limit", type=int)
     return parser.parse_args()
@@ -31,6 +32,7 @@ def main() -> None:
         image_root=args.image_root,
         data_source=args.data_source,
         check_images=not args.skip_image_check,
+        prompt_mode=args.prompt_mode,
     )
     if args.limit is not None:
         if args.limit < 0:
@@ -58,7 +60,7 @@ def main() -> None:
                 count += 1
     else:
         raise ValueError("output extension must be .jsonl, .json, or .parquet")
-    print(f"wrote {count} veRL records to {args.output}")
+    print(f"wrote {count} veRL records to {args.output} (prompt_mode={args.prompt_mode})")
 
 
 if __name__ == "__main__":

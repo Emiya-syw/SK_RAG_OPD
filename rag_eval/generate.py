@@ -4,22 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from opd_rag.thinking import chat_template_kwargs
-from opd_rag.verl_data import INSTRUCTION
-from rag_eval.data import read_jsonl, write_jsonl
-
-PROMPT_MODES = ("guided", "basic")
-BASIC_INSTRUCTION = "You are a helpful assistant."
-BASIC_RAG_INSTRUCTION = (
-    BASIC_INSTRUCTION
-    + " You may refer to the retrieved examples when answering the current question."
+from opd_rag.verl_data import (
+    BASIC_INSTRUCTION, BASIC_RAG_INSTRUCTION, INSTRUCTION, PROMPT_MODES, instruction_for,
 )
-
-
-def instruction_for(prompt_mode: str) -> str:
-    if prompt_mode not in PROMPT_MODES:
-        raise ValueError(f"Unknown prompt mode: {prompt_mode}; choose from {PROMPT_MODES}")
-    return INSTRUCTION if prompt_mode == "guided" else BASIC_RAG_INSTRUCTION
-
+from rag_eval.data import read_jsonl, write_jsonl
 
 def rag_question_of(row: dict[str, Any]) -> str:
     """Use the raw user question when a benchmark prompt wraps it."""

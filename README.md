@@ -78,7 +78,27 @@ bash scripts/train_embedding.sh
 bash scripts/train_consistent.sh data/category_consistent.jsonl outputs/consistent_full
 ```
 
-也可直接训练已转换的数据：
+三个训练入口（`train_consistent.sh`、`train_controlled.sh`、`train_embedding.sh`）
+均支持通过 `PROMPT_MODE=guided|basic` 选择提示词，默认 `guided`。
+`guided` 使用详细的案例对比与回答指导；`basic` 与 RAG 测试共用以下指令：
+
+```text
+You are a helpful assistant. You may refer to the retrieved examples when answering the current question.
+```
+
+例如，使用合并后的数据和 basic 提示词训练：
+
+```bash
+PROMPT_MODE=basic bash scripts/train_consistent.sh \
+  data/category_consistent_abstract_merged.jsonl outputs/consistent_basic
+```
+
+两个模式都保留当前问题、图片和检索案例，选择记录在转换后数据的
+`extra_info.prompt_mode` 中。提示词在数据转换时写入；单独转换可使用
+`python scripts/prepare_verl_data.py INPUT OUTPUT --prompt-mode basic`。
+已有 veRL 数据不会因设置环境变量自动改变提示词，需要重新转换。
+
+也可直接训练已转换的数据（使用数据中已保存的提示词）：
 
 ```bash
 bash scripts/run_opd.sh data/verl/train.parquet outputs/opd
