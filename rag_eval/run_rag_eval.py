@@ -17,12 +17,22 @@ DEFAULT_PRECOMPUTED_TOP_K = 10
 
 
 def resolve_generation_retrieval(
-    files: DatasetFiles, output_dir: Path, top_k: int, direct_generation: bool = False
+    files: DatasetFiles,
+    output_dir: Path,
+    top_k: int,
+    direct_generation: bool = False,
+    retrieval_root: Path | None = None,
 ) -> tuple[Path, int | None]:
     if direct_generation:
         return files.test, None
     if top_k < 1:
         raise ValueError("--top-k must be >= 1")
+
+    if retrieval_root is not None:
+        retrieval_path = retrieval_root / files.name / "retrieval.jsonl"
+        if not retrieval_path.is_file():
+            raise FileNotFoundError(retrieval_path)
+        return retrieval_path, top_k
 
     runtime_path = output_dir / files.name / "retrieval.jsonl"
     if runtime_path.is_file():
@@ -72,13 +82,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--generation-batch-size", type=int, default=1)
     parser.add_argument("--dtype", choices=("auto", "bfloat16", "float16", "float32"), default="bfloat16")
-    parser.add_argument("--attn-implementation", default="eager")
+    parser.add_argument("--attn-implementation", default="sdpa")
+    parser.add_argument("--merge-lora", action="store_true",
+                        help="Merge LoRA into the in-memory model for inference; does not write model weights")
     parser.add_argument("--limit", type=int, default=0, help="Test rows per dataset; 0 means all")
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--direct-generation", action="store_true",
                         help="Generate from each dataset's test.jsonl prompt without retrieved cases")
+    parser.add_argument("--retrieval-root", type=Path,
+                        help="Directory containing <dataset>/retrieval.jsonl files for generation")
     parser.add_argument("--progress-every", type=int, default=20)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
@@ -137,11 +151,14 @@ def main() -> None:
         if path is not None and not path.exists():
             raise FileNotFoundError(f"Missing {label}: {path}")
     generation_inputs = [
-        (files, *resolve_generation_retrieval(files, args.output_dir, args.top_k, args.direct_generation))
+        (files, *resolve_generation_retrieval(
+            files, args.output_dir, args.top_k, args.direct_generation, args.retrieval_root
+        ))
         for files in datasets
     ]
     model, processor = load_generator(
-        args.base_model, args.adapter, args.processor_path, args.dtype, args.attn_implementation
+        args.base_model, args.adapter, args.processor_path, args.dtype, args.attn_implementation,
+        merge_lora=args.merge_lora,
     )
     for files, retrieval_path, generation_top_k in generation_inputs:
         print(f"[{files.name}] generation", flush=True)

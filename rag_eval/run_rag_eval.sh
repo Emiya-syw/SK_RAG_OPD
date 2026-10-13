@@ -58,10 +58,15 @@ args=(
   --max-new-tokens "${MAX_NEW_TOKENS:-1024}"
   --generation-batch-size "${GENERATION_BATCH_SIZE:-1}"
   --dtype "${DTYPE:-bfloat16}"
+  --attn-implementation "${EVAL_ATTN_IMPLEMENTATION:-${ATTN_IMPLEMENTATION:-sdpa}}"
   --limit "${LIMIT:-0}"
   --shard-index "${shard_index}" \
   --num-shards "${num_shards}"
 )
+
+if [[ "${MERGE_LORA_FOR_INFERENCE:-false}" == "true" ]]; then
+  args+=(--merge-lora)
+fi
 
 if [[ "${ENABLE_THINKING:-false}" == "true" ]]; then
   args+=(--enable-thinking)
@@ -70,6 +75,9 @@ else
 fi
 if [[ "${DIRECT_GENERATION:-false}" == "true" ]]; then
   args+=(--direct-generation)
+fi
+if [[ -n "${RETRIEVAL_ROOT:-}" ]]; then
+  args+=(--retrieval-root "${RETRIEVAL_ROOT}")
 fi
 
 if [[ "${num_shards}" -gt 1 ]]; then

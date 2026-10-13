@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from time import perf_counter
 
 from opd_rag.thinking import chat_template_kwargs
 from opd_rag.verl_data import (
@@ -150,9 +151,12 @@ def load_generator(
     processor_path: Path | None,
     dtype: str,
     attn_implementation: str,
+    merge_lora: bool = False,
 ):
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
+    load_started = perf_counter()
+    print(f"Loading generator: attention={attn_implementation}, merge_lora={merge_lora}", flush=True)
     selected_processor = processor_path or (
         adapter if adapter is not None and (adapter / "tokenizer_config.json").is_file() else base_model
     )
@@ -171,6 +175,9 @@ def load_generator(
         from peft import PeftModel
 
         model = PeftModel.from_pretrained(model, adapter)
+        if merge_lora:
+            model = model.merge_and_unload(safe_merge=True)
+    print(f"Generator loaded in {perf_counter() - load_started:.1f}s", flush=True)
     return model.eval(), processor
 
 
@@ -212,6 +219,8 @@ def generate_dataset(
     instruction_for(prompt_mode)
     if batch_size < 1:
         raise ValueError("generation batch_size must be >= 1")
+    if progress_every < 1:
+        raise ValueError("progress_every must be >= 1")
     rows = read_jsonl(retrieval_path)
     if top_k is not None and not direct_generation:
         rows = [limit_retrieval(row, top_k) for row in rows]
@@ -223,7 +232,10 @@ def generate_dataset(
     pending = [row for row in rows if str(row["id"]) not in done]
     if output_path.exists() and not resume:
         output_path.unlink()
+    timings = {"prepare": 0.0, "generate_decode": 0.0, "write": 0.0}
+    dataset_started = perf_counter()
     for start in range(0, len(pending), batch_size):
+        batch_started = perf_counter()
         batch_rows = pending[start : start + batch_size]
         open_images = _open_current_images if direct_generation else _open_all_images
         build_messages = build_direct_messages if direct_generation else build_rag_messages
@@ -244,6 +256,8 @@ def generate_dataset(
             )
             device = next(model.parameters()).device
             inputs = {key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()}
+            generation_started = perf_counter()
+            timings["prepare"] += generation_started - batch_started
             with torch.inference_mode():
                 generated = model.generate(
                     **inputs,
@@ -258,6 +272,8 @@ def generate_dataset(
                     generated[:, prompt_length:], skip_special_tokens=True
                 )
             ]
+            # batch_decode transfers generated IDs to CPU, completing GPU work.
+            timings["generate_decode"] += perf_counter() - generation_started
         finally:
             for images in batch_images:
                 for image in images:
@@ -279,8 +295,17 @@ def generate_dataset(
                     "generation_truncated": generated_tokens >= max_new_tokens,
                 }
             )
+        write_started = perf_counter()
         write_jsonl(output_path, results, mode="a")
+        timings["write"] += perf_counter() - write_started
         completed = min(start + batch_size, len(pending))
         if completed % progress_every < batch_size or completed == len(pending):
-            print(f"  generated {completed}/{len(pending)} pending rows", flush=True)
+            elapsed = perf_counter() - dataset_started
+            print(
+                f"  generated {completed}/{len(pending)} pending rows | "
+                f"{completed / max(elapsed, 1e-9):.3f} rows/s | "
+                f"prepare={timings['prepare']:.1f}s "
+                f"generate_decode={timings['generate_decode']:.1f}s write={timings['write']:.1f}s",
+                flush=True,
+            )
     print(f"saved {len(rows)} total rows to {output_path}", flush=True)
