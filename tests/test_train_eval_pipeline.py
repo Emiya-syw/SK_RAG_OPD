@@ -44,9 +44,10 @@ class PipelineTest(unittest.TestCase):
             "PATH": str(self.root / "bin") + os.pathsep + os.environ['PATH'],
             "CUDA_VISIBLE_DEVICES": "0,1,2,3", "AUTO_CONFIG": "true",
         }
-        for key in ("OUTPUT_DIR", "EVAL_OUTPUT_ROOT", "DATA_ROOT", "ADAPTER_PATH", "TRAIN_SCRIPT"):
+        for key in ("OUTPUT_DIR", "EVAL_OUTPUT_ROOT", "DATA_ROOT", "ADAPTER_PATH", "TRAIN_SCRIPT", "LORA_INIT_PATH", "STAGE1_EXPERIMENT_NAME", "TRAIN_DATA_FILE"):
             self.env.pop(key, None)
         for script, stage in (("scripts/train_consistent.sh", "train"),
+                              ("scripts/train_controlled.sh", "train"),
                               ("scripts/latest_adapter.sh", "export"),
                               ("rag_eval/run_rag_eval.sh", "generate"),
                               ("rag_eval/run_mssbench_protocol_eval.sh", "judge")):
@@ -166,6 +167,92 @@ for dataset in os.environ['DATASETS'].split():
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('different adapter', result.stderr)
         self.assertEqual(len(self.records()), before)
+
+    def stage1_adapter(self, step):
+        directory = self.root / f'outputs/first/global_step_{step}/actor/lora_adapter'
+        directory.mkdir(parents=True)
+        (directory / 'adapter_config.json').write_text('{}')
+        (directory / 'adapter_model.safetensors').write_text('weights')
+        return directory
+
+    def test_stage1_name_selects_latest_numeric_step(self):
+        self.stage1_adapter(9)
+        latest = self.stage1_adapter(100)
+        result = self.run_pipeline(STAGE1_EXPERIMENT_NAME='first')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.records()[0]['env']['LORA_INIT_PATH'], str(latest))
+        self.assertIn('Training entry: scripts/train_controlled.sh', result.stdout)
+        # The evaluated adapter must come from stage 2, not stage 1.
+        generation = next(r['env'] for r in self.records() if r['stage'] == 'generate')
+        self.assertNotEqual(generation['ADAPTER_PATH'], str(latest))
+
+    def test_empty_stage1_clears_inherited_lora(self):
+        adapter = self.stage1_adapter(9)
+        result = self.run_pipeline(STAGE1_EXPERIMENT_NAME='', LORA_INIT_PATH=str(adapter))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('LORA_INIT_PATH', self.records()[0]['env'])
+        self.assertIn('Training entry: scripts/train_consistent.sh', result.stdout)
+
+    def test_stage1_name_overrides_inherited_lora(self):
+        adapter = self.stage1_adapter(9)
+        result = self.run_pipeline(STAGE1_EXPERIMENT_NAME='first', LORA_INIT_PATH='/stale/path')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.records()[0]['env']['LORA_INIT_PATH'], str(adapter))
+
+    def test_missing_stage1_fails_before_training(self):
+        result = self.run_pipeline(STAGE1_EXPERIMENT_NAME='missing')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / 'stages.jsonl').exists())
+
+    def test_stage1_exports_sharded_weights_before_training(self):
+        actor = self.root / 'outputs/first/global_step_2/actor'
+        actor.mkdir(parents=True)
+        (actor / 'model_world_size_1_rank_0.pt').write_text('weights')
+        result = self.run_pipeline(STAGE1_EXPERIMENT_NAME='first')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = self.records()
+        self.assertEqual([r['stage'] for r in rows], ['export', 'train', 'export', 'generate', 'judge'])
+        self.assertEqual(rows[1]['env']['LORA_INIT_PATH'], str(actor / 'lora_adapter'))
+
+    def test_stage1_not_needed_when_stage2_is_complete(self):
+        self.assertEqual(self.run_pipeline().returncode, 0)
+        before = len(self.records())
+        result = self.run_pipeline(STAGE1_EXPERIMENT_NAME='missing', CUDA_VISIBLE_DEVICES='', DASHSCOPE_API_KEY='')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.records()), before)
+
+    def test_default_source_follows_training_stage(self):
+        self.stage1_adapter(9)
+        for stage1, source, entry in (('', 'category_consistent_abstract.jsonl', 'train_consistent.sh'),
+                                      ('first', 'category_controlled_merged.jsonl', 'train_controlled.sh')):
+            with self.subTest(stage1=stage1):
+                result = subprocess.run(
+                    ['bash', str(self.root / 'scripts/train_eval_pipeline.sh')],
+                    env={**self.env, 'DRY_RUN': 'true', 'STAGE1_EXPERIMENT_NAME': stage1},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('Training data: ' + str(self.root / 'data' / source), result.stdout)
+                self.assertIn('Training entry: scripts/' + entry, result.stdout)
+
+    def test_training_data_environment_and_argument_precedence(self):
+        for stage1 in ('', 'first'):
+            if stage1:
+                self.stage1_adapter(9)
+            for argument in (None, 'data/explicit.jsonl'):
+                with self.subTest(stage1=stage1, argument=argument):
+                    command = ['bash', str(self.root / 'scripts/train_eval_pipeline.sh')]
+                    if argument:
+                        command.append(argument)
+                    result = subprocess.run(
+                        command,
+                        env={**self.env, 'DRY_RUN': 'true', 'STAGE1_EXPERIMENT_NAME': stage1,
+                             'TRAIN_DATA_FILE': 'data/custom.jsonl'},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = self.root / (argument or 'data/custom.jsonl')
+                    self.assertIn('Training data: ' + str(expected), result.stdout)
 
     def test_training_failure_stops_downstream(self):
         self.assertNotEqual(self.run_pipeline(FAIL_TRAIN='true').returncode, 0)

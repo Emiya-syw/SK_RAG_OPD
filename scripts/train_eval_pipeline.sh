@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Train -> export latest LoRA -> link retrieval data -> generate -> judge.
 # Usage: bash scripts/train_eval_pipeline.sh [SOURCE_JSONL] [TRAIN_OUTPUT_DIR]
+# Data precedence: SOURCE_JSONL argument > TRAIN_DATA_FILE > stage default.
 # Override defaults with environment variables. START_STAGE=train|export|generate|judge.
 # DRY_RUN=true prints the plan without running stages or requiring an API key.
 # Existing artifacts are checked per stage/dataset; complete stages print [SKIP].
@@ -9,6 +10,9 @@
 # JUDGE_MAX_IMAGE_PIXELS. Other training overrides pass through to run_opd.sh.
 # AUTO_CONFIG=true detects 4/8 A100 80GB and Qwen3-VL 2B/4B/8B configs.
 # Explicit environment overrides win. AUTO_CONFIG=false uses manual defaults.
+# STAGE1_EXPERIMENT_NAME resolves outputs/<name>'s latest adapter for stage 2.
+# Empty/unset STAGE1_EXPERIMENT_NAME: consistent stage 1; otherwise controlled stage 2.
+# The stage also selects the default source JSONL and clears stale LORA_INIT_PATH for stage 1.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,7 +42,9 @@ default_env ATTN_IMPLEMENTATION flash_attention_2
 # Stable names follow the actual model paths and prompt mode, including custom teachers.
 model_tag="$(basename "$MODEL_PATH")"
 teacher_tag="$(basename "$TEACHER_MODEL_PATH")"
-default_env EXPERIMENT_NAME "${model_tag}_teacher_${teacher_tag}_${PROMPT_MODE}"
+stage_tag=stage1
+if [[ -n "${STAGE1_EXPERIMENT_NAME:-}" ]]; then stage_tag=stage2; fi
+default_env EXPERIMENT_NAME "${model_tag}_teacher_${teacher_tag}_${PROMPT_MODE}_${stage_tag}"
 # Delay GPU detection until a stage actually needs the GPU.
 configure_runtime() {
   if [[ "${runtime_configured:-false}" == true ]]; then return; fi
@@ -78,12 +84,18 @@ configure_runtime() {
 default_env DATASETS 'MSSBench VLGuard MM-SafetyBench'
 export PYTHONPATH="${repo_root}/verl-runtime${PYTHONPATH:+:${PYTHONPATH}}"
 
-source_file="$(absolute_path "${1:-data/category_consistent_abstract.jsonl}")"
+if [[ -n "${STAGE1_EXPERIMENT_NAME:-}" ]]; then
+  train_script="scripts/train_controlled.sh"
+  default_source="data/category_controlled_merged.jsonl"
+else
+  train_script="scripts/train_consistent.sh"
+  default_source="data/category_consistent_abstract.jsonl"
+fi
+source_file="$(absolute_path "${1:-${TRAIN_DATA_FILE:-$default_source}}")"
 train_dir="$(absolute_path "${2:-outputs/${EXPERIMENT_NAME}}")"
 result_dir="$(absolute_path "${OUTPUT_DIR:-rag_eval/results/${EXPERIMENT_NAME}}")"
 judge_dir="$(absolute_path "${EVAL_OUTPUT_ROOT:-rag_eval/evaluation/${EXPERIMENT_NAME}/mssbench_protocol}")"
 data_root="$(absolute_path "${DATA_ROOT:-rag_eval/data}")"
-train_script="${TRAIN_SCRIPT:-scripts/train_consistent.sh}"
 start_stage="${START_STAGE:-train}"
 case "$start_stage" in
   train) start=1 ;;
@@ -100,12 +112,51 @@ done
 
 printf 'Start stage: %s\nStudent: %s\nTeacher: %s\nTraining data: %s\nCheckpoints: %s\nAnswers: %s\nScores: %s\n' \
   "$start_stage" "$MODEL_PATH" "$TEACHER_MODEL_PATH" "$source_file" "$train_dir" "$result_dir" "$judge_dir"
-printf 'Prompt mode: %s\n' "$PROMPT_MODE"
+printf 'Prompt mode: %s\nTraining entry: %s\n' "$PROMPT_MODE" "$train_script"
 command -v "$PYTHON_BIN" >/dev/null || { echo "Python not found: $PYTHON_BIN" >&2; exit 2; }
 artifacts() { "$PYTHON_BIN" scripts/pipeline_artifacts.py "$@"; }
 is_dry() { [[ "${DRY_RUN:-false}" == true ]]; }
 run_step() {
   if is_dry; then printf '[PLAN]'; printf ' %q' "$@"; printf '\n'; else "$@"; fi
+}
+resolve_stage1_adapter() {
+  local stage1_name="${STAGE1_EXPERIMENT_NAME:-}" stage1_dir init_adapter
+  if [[ -z "$stage1_name" ]]; then
+    unset LORA_INIT_PATH
+    echo '[INIT] No stage-1 experiment specified; training from base model without LoRA initialization'
+    return 0
+  else
+    case "$stage1_name" in
+      .|..|*/*) echo 'STAGE1_EXPERIMENT_NAME must be an experiment name, not a path' >&2; exit 2 ;;
+    esac
+    stage1_dir="$repo_root/outputs/$stage1_name"
+    [[ "$stage1_dir" != "$train_dir" && ! "$stage1_dir" -ef "$train_dir" ]] || {
+      echo 'Stage 1 and stage 2 must use different output directories' >&2; exit 2;
+    }
+    init_adapter="$(artifacts adapter "$stage1_dir" 2>/dev/null || true)"
+    if [[ -n "$init_adapter" ]]; then
+      echo "[SKIP stage1 export] Latest stage-1 adapter exists: $init_adapter"
+    else
+      artifacts checkpoint "$stage1_dir" >/dev/null || {
+        echo "No complete latest stage-1 checkpoint found: $stage1_dir" >&2; exit 2;
+      }
+      echo "[INIT] Exporting latest stage-1 checkpoint: $stage1_dir"
+      if is_dry; then
+        run_step bash scripts/latest_adapter.sh "$stage1_dir"
+        unset LORA_INIT_PATH
+        echo '[PLAN] Set LORA_INIT_PATH to the exported stage-1 adapter before training'
+        return 0
+      fi
+      bash scripts/latest_adapter.sh "$stage1_dir" | tee "$stage1_dir/pipeline_adapter_export.log"
+      init_adapter="$(tail -n 1 "$stage1_dir/pipeline_adapter_export.log")"
+      init_adapter="$(absolute_path "$init_adapter")"
+      artifacts valid-adapter "$init_adapter" >/dev/null || {
+        echo "Incomplete stage-1 adapter: $init_adapter" >&2; exit 2;
+      }
+    fi
+  fi
+  export LORA_INIT_PATH="$init_adapter"
+  echo "[INIT] Stage-2 student starts from: $LORA_INIT_PATH"
 }
 adapter="${ADAPTER_PATH:-}"
 if [[ -n "$adapter" ]]; then adapter="$(absolute_path "$adapter")"; fi
@@ -116,6 +167,7 @@ if (( start == 1 )); then
   elif [[ -n "$adapter" ]] && artifacts valid-adapter "$adapter" >/dev/null 2>&1; then
     echo "[SKIP 1/4] Using existing adapter: $adapter"
   else
+    resolve_stage1_adapter
     configure_runtime
     if ! is_dry; then
       [[ -f "$source_file" && -f "$train_script" && -d "$TEACHER_MODEL_PATH" ]] || {
