@@ -232,6 +232,9 @@ def generate_dataset(
     pending = [row for row in rows if str(row["id"]) not in done]
     if output_path.exists() and not resume:
         output_path.unlink()
+    if not output_path.exists():
+        # Empty shards are valid when there are fewer samples than GPUs.
+        write_jsonl(output_path, [])
     timings = {"prepare": 0.0, "generate_decode": 0.0, "write": 0.0}
     dataset_started = perf_counter()
     for start in range(0, len(pending), batch_size):

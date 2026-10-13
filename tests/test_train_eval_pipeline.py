@@ -19,6 +19,8 @@ class PipelineTest(unittest.TestCase):
         shutil.copy(source, self.root / "scripts/train_eval_pipeline.sh")
         shutil.copy(source.with_name("pipeline_auto_config.py"), self.root / "scripts/pipeline_auto_config.py")
         shutil.copy(source.with_name("pipeline_artifacts.py"), self.root / "scripts/pipeline_artifacts.py")
+        for module in ('overlap_pipeline.py', 'process_utils.py'):
+            shutil.copy(source.parents[1] / 'rag_eval' / module, self.root / 'rag_eval' / module)
         for name, hidden, layers in (("student", 2560, 36), ("teacher", 4096, 36)):
             (self.root / "models" / name / "config.json").write_text(json.dumps({
                 "model_type": "qwen3_vl", "text_config": {"hidden_size": hidden, "num_hidden_layers": layers}
@@ -42,9 +44,9 @@ class PipelineTest(unittest.TestCase):
             "EXPERIMENT_NAME": "test", "START_STAGE": "train", "DRY_RUN": "false",
             "LOG": str(self.root / "stages.jsonl"),
             "PATH": str(self.root / "bin") + os.pathsep + os.environ['PATH'],
-            "CUDA_VISIBLE_DEVICES": "0,1,2,3", "AUTO_CONFIG": "true",
+            "CUDA_VISIBLE_DEVICES": "0,1,2,3", "AUTO_CONFIG": "true", "OVERLAP_GENERATION_JUDGING": "false",
         }
-        for key in ("OUTPUT_DIR", "EVAL_OUTPUT_ROOT", "DATA_ROOT", "ADAPTER_PATH", "TRAIN_SCRIPT", "LORA_INIT_PATH", "STAGE1_EXPERIMENT_NAME", "TRAIN_DATA_FILE"):
+        for key in ("DATASETS", "OUTPUT_DIR", "EVAL_OUTPUT_ROOT", "DATA_ROOT", "ADAPTER_PATH", "TRAIN_SCRIPT", "LORA_INIT_PATH", "STAGE1_EXPERIMENT_NAME", "TRAIN_DATA_FILE"):
             self.env.pop(key, None)
         for script, stage in (("scripts/train_consistent.sh", "train"),
                               ("scripts/train_controlled.sh", "train"),
@@ -74,6 +76,8 @@ for dataset in os.environ['DATASETS'].split():
         row = {'id': 'one', 'prediction': 'answer', 'adapter': os.environ['ADAPTER_PATH'],
                'base_model': os.environ['BASE_MODEL'], 'prompt_mode': os.environ['PROMPT_MODE']}
         (directory / 'answers.jsonl').write_text(json.dumps(row) + '\\n')
+        if os.environ.get('GENERATION_READY_DIR'):
+            (Path(os.environ['GENERATION_READY_DIR']) / (dataset + '.ready')).touch()
     else:
         directory = Path(os.environ['EVAL_OUTPUT_ROOT']) / dataset
         directory.mkdir(parents=True, exist_ok=True)
@@ -103,6 +107,10 @@ for dataset in os.environ['DATASETS'].split():
         self.assertEqual(train['LR'], '5e-7')
         self.assertEqual(train['PROMPT_MODE'], 'guided')
         self.assertEqual(generation['PROMPT_MODE'], 'guided')
+        self.assertEqual(generation['DATASETS'], 'MSSBench VLGuard')
+        self.assertEqual(judge['DATASETS'], 'MSSBench VLGuard')
+        self.assertFalse((Path(generation['OUTPUT_DIR']) / 'MM-SafetyBench').exists())
+        self.assertFalse((Path(judge['EVAL_OUTPUT_ROOT']) / 'MM-SafetyBench').exists())
         self.assertEqual(train['TRAINER_GPUS_PER_NODE'], '2')
         self.assertEqual(train['TEACHER_GPU_MEMORY_UTILIZATION'], '0.50')
         self.assertEqual(generation['MAX_IMAGE_PIXELS'], '262144')
@@ -110,7 +118,7 @@ for dataset in os.environ['DATASETS'].split():
         self.assertEqual(generation['BASE_MODEL'], self.env['MODEL_PATH'])
         self.assertEqual(generation['OUTPUT_DIR'], judge['INPUT_ROOT'])
         self.assertTrue(generation['ADAPTER_PATH'].endswith('global_step_2/actor/lora_adapter'))
-        for dataset in ('MSSBench', 'VLGuard', 'MM-SafetyBench'):
+        for dataset in ('MSSBench', 'VLGuard'):
             link = Path(generation['OUTPUT_DIR']) / dataset / 'retrieval.jsonl'
             self.assertTrue(link.is_symlink())
             self.assertEqual(link.resolve(), self.root / 'rag_eval/data' / dataset / 'test_mixed_top10.jsonl')
@@ -133,7 +141,7 @@ for dataset in os.environ['DATASETS'].split():
         self.assertEqual(self.records()[-1]['stage'], 'judge')
         self.assertEqual(self.records()[-1]['env']['DATASETS'], 'VLGuard')
         root_summary = json.loads((self.root / 'rag_eval/evaluation/test/mssbench_protocol/summary.json').read_text())
-        self.assertEqual(len(root_summary['results']), 3)
+        self.assertEqual(len(root_summary['results']), 2)
 
     def test_partial_answers_only_generate_missing_dataset(self):
         self.assertEqual(self.run_pipeline().returncode, 0)
@@ -253,6 +261,17 @@ for dataset in os.environ['DATASETS'].split():
                     self.assertEqual(result.returncode, 0, result.stderr)
                     expected = self.root / (argument or 'data/custom.jsonl')
                     self.assertIn('Training data: ' + str(expected), result.stdout)
+
+    def test_full_pipeline_with_overlap_enabled(self):
+        result = self.run_pipeline(OVERLAP_GENERATION_JUDGING='true')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = self.records()
+        self.assertEqual([r['stage'] for r in rows], ['train', 'export', 'generate', 'judge', 'judge'])
+        judges = [r['env'] for r in rows if r['stage'] == 'judge']
+        self.assertEqual([j['DATASETS'] for j in judges], ['MSSBench', 'VLGuard'])
+        self.assertTrue(all(j['MAX_IMAGE_PIXELS'] == '786432' for j in judges))
+        summary = json.loads((self.root / 'rag_eval/evaluation/test/mssbench_protocol/summary.json').read_text())
+        self.assertEqual(len(summary['results']), 2)
 
     def test_training_failure_stops_downstream(self):
         self.assertNotEqual(self.run_pipeline(FAIL_TRAIN='true').returncode, 0)

@@ -9,6 +9,7 @@
 # Separate image limits: TRAIN_MAX_IMAGE_PIXELS, EVAL_MAX_IMAGE_PIXELS,
 # JUDGE_MAX_IMAGE_PIXELS. Other training overrides pass through to run_opd.sh.
 # AUTO_CONFIG=true detects 4/8 A100 80GB and Qwen3-VL 2B/4B/8B configs.
+# OVERLAP_GENERATION_JUDGING=true (default): generate and judge in parallel, one judge dataset at a time.
 # Explicit environment overrides win. AUTO_CONFIG=false uses manual defaults.
 # STAGE1_EXPERIMENT_NAME resolves outputs/<name>'s latest adapter for stage 2.
 # Empty/unset STAGE1_EXPERIMENT_NAME: consistent stage 1; otherwise controlled stage 2.
@@ -81,7 +82,7 @@ configure_runtime() {
   printf 'GPU config: visible=%s student=%s teacher=%s batch=%s prompt=%s\n' \
     "$CUDA_VISIBLE_DEVICES" "$TRAINER_GPUS_PER_NODE" "$TEACHER_GPUS_PER_NODE" "$TRAIN_BATCH_SIZE" "$PROMPT_MODE"
 }
-default_env DATASETS 'MSSBench VLGuard MM-SafetyBench'
+default_env DATASETS 'MSSBench VLGuard'
 export PYTHONPATH="${repo_root}/verl-runtime${PYTHONPATH:+:${PYTHONPATH}}"
 
 if [[ -n "${STAGE1_EXPERIMENT_NAME:-}" ]]; then
@@ -232,12 +233,19 @@ if (( start <= 3 )); then
   done
   if (( ${#pending_datasets[@]} )); then
     configure_runtime
+    generation_command=(bash rag_eval/run_rag_eval.sh)
+    if [[ "${OVERLAP_GENERATION_JUDGING:-true}" == true ]]; then
+      generation_command=("$PYTHON_BIN" -m rag_eval.overlap_pipeline --datasets "${datasets[@]}")
+      overlap_completed=true
+      echo '[QUEUE] Generation and ordered judging will overlap'
+    fi
     run_step env BASE_MODEL="$MODEL_PATH" ADAPTER_PATH="$adapter" OUTPUT_DIR="$result_dir" DATA_ROOT="$data_root" \
+      EVAL_OUTPUT_ROOT="$judge_dir" MODEL_NAME="$EXPERIMENT_NAME" \
       DATASETS="${pending_datasets[*]}" RETRIEVAL_ROOT="$result_dir" STAGE=generate DIRECT_GENERATION=false \
       TOP_K="${TOP_K:-3}" MULTI_GPU=true GPU_IDS="${GPU_IDS:-$CUDA_VISIBLE_DEVICES}" \
       GENERATION_BATCH_SIZE="${GENERATION_BATCH_SIZE:-64}" MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1536}" \
       MAX_IMAGE_PIXELS="${EVAL_MAX_IMAGE_PIXELS:-262144}" DTYPE="${DTYPE:-bfloat16}" LIMIT="${LIMIT:-0}" \
-      bash rag_eval/run_rag_eval.sh
+      "${generation_command[@]}"
   fi
 fi
 
@@ -245,8 +253,10 @@ pending_judges=()
 for dataset in "${datasets[@]}"; do
   if artifacts judge "$result_dir/$dataset/answers.jsonl" "$judge_dir/$dataset" 2>/dev/null; then
     echo "[SKIP 4/4] $dataset scoring complete: $judge_dir/$dataset/summary.json"
-  else
+  elif [[ "${overlap_completed:-false}" != true ]]; then
     pending_judges+=("$dataset")
+  elif ! is_dry; then
+    echo "[QUEUE] $dataset has remaining judge errors; retained for retry on next run"
   fi
 done
 if (( ${#pending_judges[@]} )); then

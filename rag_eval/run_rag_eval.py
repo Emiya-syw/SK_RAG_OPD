@@ -97,6 +97,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--output-suffix", default="", help="Suffix before .jsonl for sharded outputs")
+    parser.add_argument("--completion-dir", type=Path, help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -183,6 +184,10 @@ def main() -> None:
             direct_generation=args.direct_generation,
             prompt_mode=args.prompt_mode,
         )
+        if args.completion_dir is not None:
+            marker = args.completion_dir / files.name / f"{args.shard_index}.done"
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
 
 
 if __name__ == "__main__":

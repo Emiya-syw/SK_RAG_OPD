@@ -15,7 +15,7 @@ judge_workers="${JUDGE_WORKERS:-4}"
 judge_batch_size="${JUDGE_BATCH_SIZE:-128}"
 eval_passes="${EVAL_PASSES:-2}"
 limit="${LIMIT:-0}"
-datasets_text="${DATASETS:-MSSBench VLGuard MM-SafetyBench}"
+datasets_text="${DATASETS:-MSSBench VLGuard}"
 read -r -a datasets <<< "${datasets_text}"
 
 if [[ "${python_bin}" == */* ]]; then
