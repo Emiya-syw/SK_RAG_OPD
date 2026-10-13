@@ -933,11 +933,50 @@ def contiguous(data: TensorDict) -> TensorDict:
 
 
 def maybe_fix_3d_position_ids(data: TensorDict):
-    # note for tensordict with pickle/unpickle. nested tensor in tensordict after consolidate and pickle/unpickle
-    # will incur indexing error for ragged tensor. This only happens when using 3D position ids in VLMs.
-    # This is likely a bug in tensordict. As a workaround, we manually set _ragged_index.
-    if "position_ids" in data.keys() and data["position_ids"].dim() == 3 and data["position_ids"].is_nested:
-        data["position_ids"]._ragged_idx = 2
+    """Restore sequence-ragged mRoPE positions, including their physical layout.
+
+    For equal-length rows, as_nested_tensor defaults to ragged dim 1 and
+    concatenates [axes, length] rows into [batch * axes, length]. Changing
+    _ragged_idx alone leaves that buffer unchanged. Serialization can also
+    lose the ragged-dim metadata while retaining a correct packed buffer.
+    Use input_ids as the independent source of sequence boundaries.
+    """
+    positions = data.get("position_ids")
+    if positions is None or positions.dim() != 3 or not positions.is_nested:
+        return
+
+    input_ids = data["input_ids"]
+    if not input_ids.is_nested:
+        raise ValueError("Nested position_ids require nested input_ids to recover sequence boundaries")
+    offsets = input_ids.offsets()
+    lengths = offsets.diff()
+    values = positions.values()
+    total_tokens = int(offsets[-1].item())
+
+    if values.shape[-1] == total_tokens:
+        if positions._ragged_idx == 2 and torch.equal(positions.offsets(), offsets):
+            return
+        # Rebuild metadata rather than mutating private attributes or relying
+        # on unbind, which may already be broken by incorrect metadata.
+    elif (
+        len(lengths) > 0
+        and bool(torch.all(lengths == values.shape[-1]))
+        and values.shape[0] % len(lengths) == 0
+    ):
+        rows = values.reshape(len(lengths), -1, values.shape[-1])
+        values = torch.cat(list(rows.unbind(0)), dim=-1)
+    else:
+        raise ValueError(
+            f"Cannot align position_ids buffer {tuple(values.shape)} with input_ids lengths {lengths.tolist()}"
+        )
+
+    data["position_ids"] = torch.nested.nested_tensor_from_jagged(
+        values=values,
+        offsets=offsets,
+        jagged_dim=2,
+        min_seqlen=int(lengths.min().item()),
+        max_seqlen=int(lengths.max().item()),
+    )
 
 
 def list_of_dict_to_tensordict(list_of_dicts: list[dict[str, Any]]) -> TensorDict:
