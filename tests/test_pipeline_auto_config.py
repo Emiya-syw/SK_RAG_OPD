@@ -10,6 +10,30 @@ spec.loader.exec_module(auto)
 
 
 class PresetTest(unittest.TestCase):
+    def test_2b_scaling_and_overrides(self):
+        for count, batch, mini in ((4, 32, 16), (8, 64, 32)):
+            devices = [{'index': str(i)} for i in range(count)]
+            config = auto.choose({}, 2, 2, devices)
+            self.assertEqual(config['TRAIN_BATCH_SIZE'], str(batch))
+            self.assertEqual(config['PPO_MINI_BATCH_SIZE'], str(mini))
+            self.assertEqual(config['MAX_TOKEN_LEN_PER_GPU'], '65536')
+            self.assertEqual(config['ROLLOUT_MAX_NUM_BATCHED_TOKENS'], '32768')
+            self.assertEqual(config['ROLLOUT_MAX_NUM_SEQS'], '16')
+            self.assertEqual(config['TEACHER_MAX_NUM_SEQS'], '16')
+            self.assertEqual(config['ROLLOUT_GPU_MEMORY_UTILIZATION'], '0.72')
+            self.assertEqual(config['TEACHER_GPU_MEMORY_UTILIZATION'], '0.60')
+            overrides = {'TRAIN_BATCH_SIZE': '4', 'PPO_MINI_BATCH_SIZE': '4',
+                         'MAX_TOKEN_LEN_PER_GPU': '24576',
+                         'ROLLOUT_GPU_MEMORY_UTILIZATION': '0.60',
+                         'ROLLOUT_MAX_NUM_BATCHED_TOKENS': '8192',
+                         'ROLLOUT_MAX_NUM_SEQS': '4', 'TEACHER_MAX_NUM_SEQS': '4'}
+            config = auto.choose(overrides, 2, 2, devices)
+            for key, value in overrides.items():
+                self.assertEqual(config[key], value)
+            # Overriding only the batch must still produce a valid mini-batch.
+            config = auto.choose({'TRAIN_BATCH_SIZE': '12'}, 2, 2, devices)
+            self.assertEqual(config['PPO_MINI_BATCH_SIZE'], '12')
+
     def test_all_18_combinations(self):
         for count in (4, 8):
             for student in (2, 4, 8):

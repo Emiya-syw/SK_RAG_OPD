@@ -9,6 +9,10 @@
 # Separate image limits: TRAIN_MAX_IMAGE_PIXELS, EVAL_MAX_IMAGE_PIXELS,
 # JUDGE_MAX_IMAGE_PIXELS. Other training overrides pass through to run_opd.sh.
 # AUTO_CONFIG=true detects 4/8 A100 80GB and Qwen3-VL 2B/4B/8B configs.
+# Aggressive 2B presets require runtime throughput/peak-memory validation.
+# 2B student: global train/mini batches 32/16 (4 GPUs) or 64/32 (8 GPUs),
+# actor token budget 65536, rollout prefill budget 32768, rollout memory 0.72.
+# 2B teacher: memory 0.60, max sequences 16 per replica. Explicit overrides win.
 # OVERLAP_GENERATION_JUDGING=true (default): generate and judge in parallel, one judge dataset at a time.
 # Explicit environment overrides win. AUTO_CONFIG=false uses manual defaults.
 # STAGE1_EXPERIMENT_NAME resolves outputs/<name>'s latest adapter for stage 2.

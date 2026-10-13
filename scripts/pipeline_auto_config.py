@@ -1,4 +1,4 @@
-"""Select conservative Qwen3-VL LoRA presets; no model loading or GPU allocation.
+"""Select Qwen3-VL LoRA presets; no model loading or GPU allocation.
 
 These are starting presets, not measured throughput optima or OOM guarantees.
 Model signatures match the official Qwen3-VL 2B/4B/8B config.json files.
@@ -12,8 +12,8 @@ import sys
 
 SIGNATURES = {(2048, 28): 2, (2560, 36): 4, (4096, 36): 8}
 # token budget, rollout memory fraction, generation batch (per GPU)
-STUDENT = {2: (32768, '0.60', 16), 4: (24576, '0.55', 8), 8: (21505, '0.40', 4)}
-TEACHER = {2: ('0.40', 4), 4: ('0.45', 4), 8: ('0.50', 2)}
+STUDENT = {2: (65536, '0.72', 16), 4: (24576, '0.55', 8), 8: (21505, '0.40', 4)}
+TEACHER = {2: ('0.60', 16), 4: ('0.45', 4), 8: ('0.50', 2)}
 
 
 def model_size(path):
@@ -68,8 +68,14 @@ def choose(env, student, teacher, devices):
     replicas = int(setting('TEACHER_NUM_REPLICAS', teacher_gpus // tp))
     if replicas <= 0 or replicas * tp != teacher_gpus:
         raise ValueError('TEACHER_NUM_REPLICAS * TEACHER_TP must equal teacher GPU count')
-    batch = int(setting('TRAIN_BATCH_SIZE', trainer * (2 if student <= 4 else 1)))
-    mini = int(setting('PPO_MINI_BATCH_SIZE', batch))
+    # 2B throughput trial: sixteen rollout samples and eight update samples per student GPU.
+    # Scale global batches with GPU count, keeping per-GPU memory budgets fixed.
+    batch = int(setting('TRAIN_BATCH_SIZE', trainer * {2: 16, 4: 2, 8: 1}[student]))
+    default_mini = trainer * 8 if student == 2 else batch
+    # An explicit training batch may not divide the preset mini-batch.
+    if default_mini <= 0 or batch % default_mini:
+        default_mini = batch
+    mini = int(setting('PPO_MINI_BATCH_SIZE', default_mini))
     if mini <= 0 or batch <= 0 or mini % trainer or batch % mini:
         raise ValueError('Batch must be divisible by mini-batch, and mini-batch by student GPU count')
     tokens, rollout_memory, generation_batch = STUDENT[student]
@@ -82,8 +88,8 @@ def choose(env, student, teacher, devices):
         'PARAM_OFFLOAD': 'false', 'OPTIMIZER_OFFLOAD': 'false',
         'ENABLE_GRADIENT_CHECKPOINTING': 'true',
         'ROLLOUT_GPU_MEMORY_UTILIZATION': rollout_memory,
-        'ROLLOUT_MAX_NUM_BATCHED_TOKENS': 8192,
-        'ROLLOUT_MAX_NUM_SEQS': max(8, batch),
+        'ROLLOUT_MAX_NUM_BATCHED_TOKENS': 32768 if student == 2 else 8192,
+        'ROLLOUT_MAX_NUM_SEQS': max(16, (batch + trainer - 1) // trainer) if student == 2 else max(8, batch),
         'TEACHER_GPU_MEMORY_UTILIZATION': TEACHER[teacher][0],
         'TEACHER_MAX_NUM_SEQS': TEACHER[teacher][1],
         'GENERATION_BATCH_SIZE': generation_batch,
@@ -99,7 +105,7 @@ def main():
     devices = visible_gpus(env)
     result = choose(env, student, teacher, devices)
     print(f'Auto preset: student={student}B teacher={teacher}B, {len(devices)} x A100 80GB; '
-          'conservative defaults, not a benchmarked optimum.', file=sys.stderr)
+          'starting presets, not a benchmarked optimum or OOM guarantee.', file=sys.stderr)
     for key, value in result.items():
         if '\n' in value or '\t' in value:
             raise ValueError(f'Invalid whitespace in {key}')
