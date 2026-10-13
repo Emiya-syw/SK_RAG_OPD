@@ -10,6 +10,28 @@ spec.loader.exec_module(auto)
 
 
 class PresetTest(unittest.TestCase):
+    def test_4b_scaling_mixed_teacher_and_overrides(self):
+        for count, batch, mini in ((4, 16, 8), (8, 32, 16)):
+            devices = [{'index': str(i)} for i in range(count)]
+            for teacher in (2, 4, 8):
+                config = auto.choose({}, 4, teacher, devices)
+                self.assertEqual(config['TRAIN_BATCH_SIZE'], str(batch))
+                self.assertEqual(config['PPO_MINI_BATCH_SIZE'], str(mini))
+                self.assertEqual(config['MAX_TOKEN_LEN_PER_GPU'], '49152')
+                self.assertEqual(config['ROLLOUT_GPU_MEMORY_UTILIZATION'], '0.65')
+                self.assertEqual(config['ROLLOUT_MAX_NUM_BATCHED_TOKENS'], '16384')
+                self.assertEqual(config['ROLLOUT_MAX_NUM_SEQS'], '8')
+                self.assertEqual(config['TEACHER_MAX_NUM_SEQS'], str(auto.TEACHER[teacher][1]))
+            config = auto.choose({}, 8, 4, devices)
+            self.assertEqual(config['TEACHER_GPU_MEMORY_UTILIZATION'], '0.65')
+            self.assertEqual(config['TEACHER_MAX_NUM_SEQS'], '8')
+            overrides = {'TRAIN_BATCH_SIZE': '4', 'PPO_MINI_BATCH_SIZE': '4',
+                         'MAX_TOKEN_LEN_PER_GPU': '24576', 'ROLLOUT_GPU_MEMORY_UTILIZATION': '0.55',
+                         'ROLLOUT_MAX_NUM_BATCHED_TOKENS': '8192', 'TEACHER_MAX_NUM_SEQS': '2'}
+            config = auto.choose(overrides, 4, 4, devices)
+            for key, value in overrides.items():
+                self.assertEqual(config[key], value)
+
     def test_2b_scaling_and_overrides(self):
         for count, batch, mini in ((4, 32, 16), (8, 64, 32)):
             devices = [{'index': str(i)} for i in range(count)]
@@ -53,8 +75,8 @@ class PresetTest(unittest.TestCase):
                     {'TRAINER_GPUS_PER_NODE': '4'}, {'MAX_TOKEN_LEN_PER_GPU': '1024'}):
             with self.subTest(env=env), self.assertRaises(ValueError):
                 auto.choose(env, 4, 8, devices)
-        result = auto.choose({'MAX_PROMPT_LENGTH': '32768', 'ROLLOUT_GPU_MEMORY_UTILIZATION': '0.42'}, 4, 8, devices)
-        self.assertEqual(result['MAX_TOKEN_LEN_PER_GPU'], '33793')
+        result = auto.choose({'MAX_PROMPT_LENGTH': '65536', 'ROLLOUT_GPU_MEMORY_UTILIZATION': '0.42'}, 4, 8, devices)
+        self.assertEqual(result['MAX_TOKEN_LEN_PER_GPU'], '66561')
         self.assertEqual(result['ROLLOUT_GPU_MEMORY_UTILIZATION'], '0.42')
 
     @patch.object(auto.subprocess, 'check_output')

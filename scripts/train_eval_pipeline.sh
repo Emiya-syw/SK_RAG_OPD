@@ -13,6 +13,9 @@
 # 2B student: global train/mini batches 32/16 (4 GPUs) or 64/32 (8 GPUs),
 # actor token budget 65536, rollout prefill budget 32768, rollout memory 0.72.
 # 2B teacher: memory 0.60, max sequences 16 per replica. Explicit overrides win.
+# 4B student: global train/mini batches 16/8 (4 GPUs) or 32/16 (8 GPUs),
+# actor token budget 49152, rollout prefill budget 16384, rollout memory 0.65.
+# 4B teacher: memory 0.65, max sequences 8 per replica. GPU validation required.
 # OVERLAP_GENERATION_JUDGING=true (default): generate and judge in parallel, one judge dataset at a time.
 # Explicit environment overrides win. AUTO_CONFIG=false uses manual defaults.
 # STAGE1_EXPERIMENT_NAME resolves outputs/<name>'s latest adapter for stage 2.
