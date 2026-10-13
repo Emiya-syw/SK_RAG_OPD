@@ -9,7 +9,10 @@ if [[ -z "${latest_step}" || ! -d "${latest_step}/actor" ]]; then
 fi
 
 adapter_config="$({ find "${latest_step}/actor" -type f -name adapter_config.json -printf '%T@ %p\n' 2>/dev/null || true; } | sort -nr | head -n 1 | cut -d' ' -f2-)"
-if [[ -n "${adapter_config}" ]]; then
+if [[ -n "${adapter_config}" ]] && {
+  [[ -s "$(dirname "${adapter_config}")/adapter_model.safetensors" ]] ||
+  [[ -s "$(dirname "${adapter_config}")/adapter_model.bin" ]];
+}; then
   dirname "${adapter_config}"
   exit 0
 fi
