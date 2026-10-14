@@ -537,8 +537,11 @@ class FileLogger:
             directory = os.path.join(root_path, self.project_name)
             os.makedirs(directory, exist_ok=True)
             self.filepath = os.path.join(directory, f"{self.experiment_name}.jsonl")
+        else:
+            os.makedirs(os.path.dirname(os.path.abspath(self.filepath)), exist_ok=True)
         print(f"Creating file logger at {os.path.abspath(self.filepath)}")
-        self.fp = open(self.filepath, "wb", buffering=0)
+        append = os.getenv("VERL_FILE_LOGGER_APPEND", "false").lower() in ("1", "true", "yes")
+        self.fp = open(self.filepath, "ab" if append else "wb", buffering=0)
 
     def log(self, data, step):
         data = {"step": step, "data": data}

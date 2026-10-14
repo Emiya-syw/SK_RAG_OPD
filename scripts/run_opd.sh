@@ -251,8 +251,12 @@ VAL_BEFORE_TRAIN="${VAL_BEFORE_TRAIN:-false}"
 RESUME_MODE="${RESUME_MODE:-disable}"
 # 指定恢复 checkpoint。可选：空字符串或路径；使用时通常设 RESUME_MODE=resume_path。
 RESUME_FROM_PATH="${RESUME_FROM_PATH:-}"
-# 日志后端的 Hydra 列表。常用：['console']、['console','wandb']。
-TRAINER_LOGGER="${TRAINER_LOGGER:-['console']}"
+# 每步指标同时打印到终端、保存为 JSONL；可覆盖为 ['console','wandb'] 等。
+TRAINER_LOGGER="${TRAINER_LOGGER:-['console','file']}"
+# 指标路径与曲线路径；指标文件包含所有 veRL 标量，曲线只挑选关键项。
+TRAIN_METRICS_FILE="${TRAIN_METRICS_FILE:-${output_dir}/training_metrics.jsonl}"
+TRAIN_METRICS_PLOT_FILE="${TRAIN_METRICS_PLOT_FILE:-${output_dir}/training_curves.svg}"
+PLOT_TRAIN_METRICS="${PLOT_TRAIN_METRICS:-true}"
 # 每次验证记录多少条 prompt/output/score。0 关闭；正整数配合 wandb/swanlab 和 TEST_FREQ 使用。
 LOG_VAL_GENERATIONS="${LOG_VAL_GENERATIONS:-0}"
 # 训练 rollout 文本落盘目录。空字符串关闭；可设为 outputs/.../rollouts，便于定性检查但会占磁盘。
@@ -343,6 +347,7 @@ render_training_config() {
     TRAINER_GPUS_PER_NODE TEACHER_GPUS_PER_NODE NNODES TEACHER_NNODES \
     BALANCE_BATCH EPOCHS TOTAL_TRAINING_STEPS SAVE_FREQ MAX_ACTOR_CKPT_TO_KEEP \
     TEST_FREQ VAL_BEFORE_TRAIN RESUME_MODE RESUME_FROM_PATH TRAINER_LOGGER \
+    TRAIN_METRICS_FILE TRAIN_METRICS_PLOT_FILE PLOT_TRAIN_METRICS \
     LOG_VAL_GENERATIONS ROLLOUT_DATA_DIR VALIDATION_DATA_DIR PRINT_TRAIN_CONFIG \
     SAVE_TRAIN_CONFIG TRAIN_CONFIG_FILE PROJECT_NAME EXPERIMENT_NAME
   render_config_group "algorithm_and_reward" \
@@ -467,7 +472,25 @@ if [[ "${PRINT_TRAIN_CONFIG}" == "true" ]]; then
   fi
 fi
 
-exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
+if [[ "$TRAINER_LOGGER" == *file* ]]; then
+  export VERL_FILE_LOGGER_PATH="${VERL_FILE_LOGGER_PATH:-$TRAIN_METRICS_FILE}"
+  if [[ "$VERL_FILE_LOGGER_PATH" != /* ]]; then
+    export VERL_FILE_LOGGER_PATH="${project_root}/${VERL_FILE_LOGGER_PATH}"
+  fi
+  if [[ -z "${VERL_FILE_LOGGER_APPEND:-}" ]]; then
+    if [[ "$RESUME_MODE" == disable ]]; then
+      export VERL_FILE_LOGGER_APPEND=false
+    else
+      export VERL_FILE_LOGGER_APPEND=true
+    fi
+  fi
+fi
+if [[ "$TRAIN_METRICS_PLOT_FILE" != /* ]]; then
+  TRAIN_METRICS_PLOT_FILE="${project_root}/${TRAIN_METRICS_PLOT_FILE}"
+fi
+
+train_status=0
+"${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "algorithm.adv_estimator=${ADV_ESTIMATOR}" \
   "algorithm.use_kl_in_reward=${USE_KL_IN_REWARD}" \
   "reward.custom_reward_function.path=${REWARD_FUNCTION_PATH}" \
@@ -573,4 +596,11 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "distillation.distillation_loss.clip_ratio=${DISTILLATION_CLIP_RATIO}" \
   "distillation.distillation_loss.clip_ratio_low=${DISTILLATION_CLIP_RATIO}" \
   "distillation.distillation_loss.clip_ratio_high=${DISTILLATION_CLIP_RATIO}" \
-  "$@"
+  "$@" || train_status=$?
+
+if [[ "$PLOT_TRAIN_METRICS" == true && "$TRAINER_LOGGER" == *file* && -s "$VERL_FILE_LOGGER_PATH" ]]; then
+  "${PYTHON_BIN}" scripts/plot_train_metrics.py "$VERL_FILE_LOGGER_PATH" --output "$TRAIN_METRICS_PLOT_FILE" || {
+    echo "Could not render training curves from $VERL_FILE_LOGGER_PATH" >&2
+  }
+fi
+exit "$train_status"

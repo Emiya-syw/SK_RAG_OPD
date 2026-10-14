@@ -207,6 +207,8 @@ DISTILLATION_LOSS_MODE=jsd JSD_BETA=0.5 USE_POLICY_GRADIENT=false \
 
 `train_eval_pipeline.sh` 的 2B 自动预设在四种分布损失下将学生反传 token 预算从 65536 降至 24576，并默认启用 `USE_CHUNKED_TOPK=true`、`CHUNKED_TOPK_CHUNK_SIZE=512`，以降低词表 logits 相关的峰值显存；显式环境变量仍优先。遇到 OOM 可进一步减小 `MAX_PROMPT_LENGTH` 与 `MAX_TOKEN_LEN_PER_GPU`，同时确保预算至少覆盖最大 prompt＋response 长度。`TRAIN_BATCH_SIZE` 控制全局样本数，不直接替代每卡的反传 token 预算。
 
+训练默认使用 `TRAINER_LOGGER=['console','file']`，将每步所有 veRL 指标保存到 `outputs/<EXPERIMENT_NAME>/training_metrics.jsonl`；训练结束（包括报错退出）时自动生成 `training_curves.svg` 和对应的 `training_curves.csv`。曲线包括蒸馏损失、师生熵、混合权重、top-k 概率质量、回答长度、梯度范数、rollout 一致性和耗时；JSONL 保留全部指标。可在训练中读取 JSONL，或随时运行 `python3 scripts/plot_train_metrics.py outputs/<EXPERIMENT_NAME>/training_metrics.jsonl` 重画。恢复训练时指标文件追加写入，并以最新的同一步记录绘图；全新训练则覆盖旧指标。用 `TRAIN_METRICS_FILE`、`TRAIN_METRICS_PLOT_FILE` 更改路径，用 `PLOT_TRAIN_METRICS=false` 关闭自动绘图。显式覆盖 `TRAINER_LOGGER` 时若不包含 `file`，则不会保存本地指标。
+
 Rollout-mixture distillation 可按比例把 on-policy rollout 替换为数据中的 golden/off-policy response，降低训练分布被退化长 rollout 主导的风险。`prepare_verl_data.py` 会按 Instruct 输出格式把 `teacher_demonstration` 和 `reference_answer/response` 以普通 assistant 文本拼接后写入 `extra_info.golden_response`，不会加入 `<think>` 标签。该模式保持默认的 thinking-off 配置，并关闭 teacher-only privileged prompt，保证 teacher/student 评分提示词一致：
 
 ```bash
