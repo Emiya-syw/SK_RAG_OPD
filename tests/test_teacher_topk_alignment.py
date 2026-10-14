@@ -8,24 +8,29 @@ from verl.experimental.teacher_loop.teacher_manager import AsyncTeacherLLMServer
 
 
 class FakeClient:
-    def __init__(self, rows, scored_ids=None):
+    def __init__(self, rows, scored_ids=None, sampled_logprobs=None):
         self.rows = rows
         self.scored_ids = scored_ids
+        self.sampled_logprobs = sampled_logprobs
 
     async def generate(self, **kwargs):
         width = len(self.rows[0]) if self.rows else 1
-        return SimpleNamespace(extra_fields={
+        extra_fields = {
             'prompt_ids': self.rows,
             'prompt_logprobs': [[-1.0] * width for _ in self.rows],
             'scored_prompt_token_ids': self.scored_ids,
-        })
+        }
+        if self.sampled_logprobs is not None:
+            extra_fields['prompt_sampled_logprobs'] = self.sampled_logprobs
+        return SimpleNamespace(extra_fields=extra_fields)
 
 
-def manager(client):
+def manager(client, mode='forward_kl_topk'):
     obj = AsyncTeacherLLMServerManager.__new__(AsyncTeacherLLMServerManager)
     obj.teacher_model_configs = {'teacher': SimpleNamespace(inference=SimpleNamespace(temperature=1.0))}
     obj.teacher_client = {'teacher': client}
-    obj.distillation_loss_config = SimpleNamespace(topk=2, loss_settings=SimpleNamespace(use_topk=True))
+    obj.distillation_loss_config = SimpleNamespace(
+        topk=2, loss_mode=mode, loss_settings=SimpleNamespace(use_topk=True))
     return obj
 
 
@@ -50,6 +55,25 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
         rows = [[i, i+100] for i in range(6)]
         ids, _ = score(FakeClient(rows, [11, 12, 13, 14, 21, 22]), expected)
         self.assertEqual(ids.tolist(), rows[-4:])
+
+    def test_entropy_kl_preserves_sampled_logprob_outside_teacher_topk(self):
+        expected = [11, 12, 13, 14, 21, 22]
+        rows = [[101, 102], [111, 112], [121, 122], [131, 132]]
+        client = FakeClient(rows, [11, 14, 21, 22], [-.1, -.2, -4., 0.])
+        ids, logs = asyncio.run(manager(client, mode='entropy_kl').compute_teacher_logprobs_single(
+            expected, 2, multi_modal_data={'images': ['image']}))
+        self.assertEqual(ids.shape, (6, 3))
+        self.assertEqual(logs.shape, (6, 3))
+        self.assertEqual(ids[-2:, :2].tolist(), rows[-2:])
+        # Rows immediately preceding the two response tokens are their scores.
+        self.assertAlmostEqual(logs[-3, -1].item(), -.2)
+        self.assertAlmostEqual(logs[-2, -1].item(), -4.)
+        self.assertEqual(logs[:2, -1].tolist(), [0., 0.])
+
+    def test_entropy_kl_requires_sampled_logprob(self):
+        with self.assertRaisesRegex(ValueError, 'requires the teacher logprob'):
+            asyncio.run(manager(FakeClient([[1, 2]] * 4), mode='entropy_kl').compute_teacher_logprobs_single(
+                [11, 14, 21, 22], 2))
 
     def test_response_mismatch_fails(self):
         with self.assertRaisesRegex(ValueError, 'response-token suffix differs'):

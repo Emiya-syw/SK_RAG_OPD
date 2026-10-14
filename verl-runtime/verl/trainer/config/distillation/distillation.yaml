@@ -24,9 +24,9 @@ distillation_loss:
   loss_mode: k3
 
   # If distillation loss requires top-k logits, this is the value of k
-  topk: 32
+  topk: 16
 
-  # Normalized teacher-topk + one residual bucket (FSDP eager logits).
+  # FSDP eager teacher-topk distributions; forward KL normalizes teacher top-k only.
   # jsd is standard symmetric JSD at beta=.5; beta weights the teacher in M.
   jsd_beta: 0.5
   entropy_gate_temperature: 1.0

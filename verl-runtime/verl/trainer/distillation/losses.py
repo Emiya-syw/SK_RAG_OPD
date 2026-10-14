@@ -193,8 +193,9 @@ def distillation_ppo_loss(
         distillation_config: Distillation configuration.
         model_output: Model output, including log_probs, entropy.
         data: Micro input batch, contains
-          - teacher_logprobs: (bsz, seqlen, topk)
-          - teacher_ids: (bsz, seqlen, topk)
+          - teacher_logprobs: (bsz, seqlen, topk), or topk+1 for entropy_kl
+            (last column: scored student's sampled token)
+          - teacher_ids: matching shape; last entropy_kl ID is a placeholder
         student_logits: (bsz, seqlen/cp_size, vocab_size/tp_size).
         data_format: "thd" or "bshd", models not support THD format, e.g GPT-OSS, Qwen3.5
 
@@ -301,6 +302,48 @@ def distillation_loss(
             loss_agg_mode=loss_agg_mode,
             **config.global_batch_info,
         )
+        if loss_config.loss_mode == "entropy_kl":
+            # The forward component is differentiable above. For the reverse
+            # component, use the teacher-minus-old-student logprob of the
+            # sampled token as a detached PPO advantage. The teacher's last
+            # column contains its logprob even when it is outside top-k.
+            current_log_prob = no_padding_2_padding(model_output["log_probs"], data)
+            old_log_prob = data["old_log_probs"]
+            if old_log_prob.is_nested:
+                old_log_prob = old_log_prob.to_padded_tensor(0.0)
+            teacher_sampled_log_prob = no_padding_2_padding(data["teacher_logprobs"], data)[..., -1]
+            forward_weight = no_padding_2_padding(model_output["forward_weight"], data)
+            assert (
+                current_log_prob.shape
+                == old_log_prob.shape
+                == teacher_sampled_log_prob.shape
+                == forward_weight.shape
+            )
+            sampled_reverse_kl = old_log_prob.detach() - teacher_sampled_log_prob.detach()
+            reverse_weight = 1 - forward_weight.detach()
+            advantage = -(reverse_weight * sampled_reverse_kl).detach()
+            ratio = (current_log_prob - old_log_prob).clamp(-20.0, 20.0).exp()
+            clip_low = loss_config.clip_ratio_low if loss_config.clip_ratio_low is not None else loss_config.clip_ratio
+            clip_high = loss_config.clip_ratio_high if loss_config.clip_ratio_high is not None else loss_config.clip_ratio
+            unclipped = -ratio * advantage
+            clipped = -ratio.clamp(1 - clip_low, 1 + clip_high) * advantage
+            reverse_mat = torch.maximum(unclipped, clipped)
+            rollout_is_weights = data.get("rollout_is_weights", None)
+            if rollout_is_weights is not None:
+                reverse_mat = reverse_mat * rollout_is_weights
+            reverse_loss = agg_loss(
+                loss_mat=reverse_mat,
+                loss_mask=response_mask,
+                loss_agg_mode=loss_agg_mode,
+                **config.global_batch_info,
+            )
+            distillation_loss = distillation_loss + reverse_loss
+            valid = response_mask.bool()
+            distillation_metrics["distillation/forward_component"] = distillation_losses[valid].detach().mean().item()
+            distillation_metrics["distillation/sampled_reverse_kl"] = (
+                reverse_weight * sampled_reverse_kl
+            )[valid].mean().item()
+            distillation_metrics["distillation/pg_clipfrac"] = (clipped > unclipped)[valid].float().mean().item()
 
     return distillation_loss, distillation_metrics
 

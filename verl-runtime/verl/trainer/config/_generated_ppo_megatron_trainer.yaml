@@ -920,7 +920,7 @@ distillation:
   distillation_loss:
     _target_: verl.workers.config.DistillationLossConfig
     loss_mode: k3
-    topk: 32
+    topk: 16
     use_task_rewards: true
     distillation_loss_coef: 1.0
     loss_max_clamp: null

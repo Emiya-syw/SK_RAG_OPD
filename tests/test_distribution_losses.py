@@ -26,12 +26,12 @@ class DistributionLossTests(unittest.TestCase):
                 y = torch.tensor([[0., 0., 0.], [2., -1., -2.]], dtype=torch.double, requires_grad=True)
                 s, t = x.softmax(-1), y.softmax(-1).detach()
                 c = config(mode)
-                out = distribution_loss(x.log_softmax(-1), y.log_softmax(-1), c, include_tail=False)
+                out = distribution_loss(x.log_softmax(-1), y.log_softmax(-1), c)
                 hs, ht = -(s * s.log()).sum(-1), -(t * t.log()).sum(-1)
                 alpha = (.05 + .9 * torch.sigmoid(ht - hs)).detach()
                 beta = 1 - alpha if mode == 'entropy_jsd' else torch.full_like(alpha, .5)
                 m = beta[:, None] * t + (1-beta[:, None]) * s
-                expected = {'forward_kl': kl(t, s), 'entropy_kl': alpha*kl(t, s)+(1-alpha)*kl(s, t),
+                expected = {'forward_kl': kl(t, s), 'entropy_kl': alpha*kl(t, s),
                             'jsd': beta*kl(t, m)+(1-beta)*kl(s, m),
                             'entropy_jsd': beta*kl(t, m)+(1-beta)*kl(s, m)}[mode]
                 torch.testing.assert_close(out['distillation_losses'], expected)
@@ -51,23 +51,65 @@ class DistributionLossTests(unittest.TestCase):
     def test_jsd_symmetry_bound_identity(self):
         a, b = torch.tensor([[.99, .01]]).log(), torch.tensor([[.02, .98]]).log()
         c = config('jsd')
-        ab = distribution_loss(a, b, c, include_tail=False)['distillation_losses']
-        ba = distribution_loss(b, a, c, include_tail=False)['distillation_losses']
+        ab = distribution_loss(a, b, c)['distillation_losses']
+        ba = distribution_loss(b, a, c)['distillation_losses']
         torch.testing.assert_close(ab, ba)
         self.assertTrue((ab <= torch.log(torch.tensor(2.))).all())
         for mode in DISTRIBUTION_LOSS_MODES:
-            loss = distribution_loss(a, a, config(mode), include_tail=False)['distillation_losses']
+            loss = distribution_loss(a, a, config(mode))['distillation_losses']
             torch.testing.assert_close(loss, torch.zeros_like(loss), atol=1e-7, rtol=0)
 
-    def test_tail_bucket(self):
+    def test_topk_conditional_distribution_without_tail_bucket(self):
         s, t = torch.tensor([[.2, .3, .5]]), torch.tensor([[.6, .1, .3]])
+        s_topk = s[:, :2] / s[:, :2].sum(-1, keepdim=True)
+        t_topk = t[:, :2] / t[:, :2].sum(-1, keepdim=True)
         for mode in DISTRIBUTION_LOSS_MODES:
             c = config(mode)
-            tail = distribution_loss(s[:, :2].log(), t[:, :2].log(), c)
-            full = distribution_loss(s.log(), t.log(), c, include_tail=False)
-            for key in ('distillation_losses', 'student_entropy', 'teacher_entropy'):
-                torch.testing.assert_close(tail[key], full[key])
-            torch.testing.assert_close(tail['teacher_mass'], torch.tensor([.7]))
+            out = distribution_loss(s[:, :2].log(), t[:, :2].log(), c)
+            torch.testing.assert_close(out['student_entropy'], -(s_topk * s_topk.log()).sum(-1))
+            torch.testing.assert_close(out['teacher_entropy'], -(t_topk * t_topk.log()).sum(-1))
+            torch.testing.assert_close(out['student_mass'], torch.tensor([.5]))
+            torch.testing.assert_close(out['teacher_mass'], torch.tensor([.7]))
+            forward = (t_topk * (t_topk.log() - s[:, :2].log())).sum(-1)
+            if mode == 'forward_kl':
+                expected = forward
+            elif mode == 'entropy_kl':
+                alpha = out['forward_weight']
+                expected = alpha * forward
+            else:
+                beta = out['jsd_beta'].unsqueeze(-1)
+                mixture = beta * t_topk + (1 - beta) * s_topk
+                expected = (beta.squeeze(-1) * kl(t_topk, mixture)
+                            + (1 - beta.squeeze(-1)) * kl(s_topk, mixture))
+            torch.testing.assert_close(out['distillation_losses'], expected)
+
+        # Changing only the mass outside teacher top-k leaves conditional
+        # JSD unchanged, while EOPD forward KL still sees it.
+        less_topk_mass = torch.tensor([[.08, .12]])
+        for mode in ('jsd', 'entropy_jsd'):
+            original = distribution_loss(s[:, :2].log(), t[:, :2].log(), config(mode))
+            changed = distribution_loss(less_topk_mass.log(), t[:, :2].log(), config(mode))
+            torch.testing.assert_close(original['distillation_losses'], changed['distillation_losses'])
+        original = distribution_loss(s[:, :2].log(), t[:, :2].log(), config('forward_kl'))
+        changed = distribution_loss(less_topk_mass.log(), t[:, :2].log(), config('forward_kl'))
+        self.assertGreater(changed['distillation_losses'].item(), original['distillation_losses'].item())
+
+    def test_forward_kl_uses_normalized_teacher_topk_and_full_student_probability(self):
+        logits = torch.tensor([[.3, -.4, 1.2]], dtype=torch.double, requires_grad=True)
+        student = logits.log_softmax(-1)
+        teacher = torch.tensor([[.6, .1]], dtype=torch.double).log()
+        target = torch.tensor([[.6 / .7, .1 / .7, 0.]], dtype=torch.double)
+        expected_forward = (target[:, :2] * (target[:, :2].log() - student[:, :2])).sum(-1)
+        forward = distribution_loss(student[:, :2], teacher, config('forward_kl'))['distillation_losses']
+        torch.testing.assert_close(forward, expected_forward)
+        torch.testing.assert_close(torch.autograd.grad(forward.sum(), logits, retain_graph=True)[0],
+                                   student.exp() - target)
+        # The EOPD approximation must penalize student mass outside teacher top-k.
+        self.assertGreater(forward.item(), 0)
+
+        mixed = distribution_loss(student[:, :2], teacher, config('entropy_kl'))
+        alpha = mixed['forward_weight']
+        torch.testing.assert_close(mixed['distillation_losses'], alpha * expected_forward)
 
     def test_chunked_gradients_and_empty(self):
         torch.manual_seed(17)
@@ -94,8 +136,8 @@ class DistributionLossTests(unittest.TestCase):
 
     def test_normalization(self):
         s, t = torch.tensor([[.9, .1]]).log(), torch.tensor([[.5, .5]]).log()
-        a = distribution_loss(s, t, config('entropy_jsd'), include_tail=False)
-        b = distribution_loss(s, t, config('entropy_jsd', entropy_jsd_normalize=True), include_tail=False)
+        a = distribution_loss(s, t, config('entropy_jsd'))
+        b = distribution_loss(s, t, config('entropy_jsd', entropy_jsd_normalize=True))
         beta = a['jsd_beta']
         torch.testing.assert_close(b['distillation_losses'], a['distillation_losses'] / (beta*(1-beta)))
 
@@ -109,6 +151,7 @@ class DistributionLossTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 DistillationLossConfig(loss_mode=mode, use_policy_gradient=True)
         self.assertEqual(DistillationLossConfig().loss_mode, 'k3')
+        self.assertEqual(DistillationLossConfig().topk, 16)
 
     def test_fsdp_nested_dispatch(self):
         from verl.trainer.distillation.losses import compute_topk_loss
@@ -119,7 +162,18 @@ class DistributionLossTests(unittest.TestCase):
                 'teacher_ids': torch.nested.nested_tensor([ids[0, :2], ids[0, 2:]], layout=torch.jagged)}
         for mode in DISTRIBUTION_LOSS_MODES:
             c = config(mode)
-            out = compute_topk_loss(SimpleNamespace(strategy='fsdp'), SimpleNamespace(distillation_loss=c), data, x, 'thd')
+            mode_data = data
+            if mode == 'entropy_kl':
+                sampled_logs = torch.randn(5).log_softmax(0)
+                expanded_logs = torch.cat((logs[0], sampled_logs[:, None]), dim=-1)
+                expanded_ids = torch.cat((ids[0], torch.zeros(5, 1, dtype=ids.dtype)), dim=-1)
+                mode_data = {
+                    'teacher_logprobs': torch.nested.nested_tensor(
+                        [expanded_logs[:2], expanded_logs[2:]], layout=torch.jagged),
+                    'teacher_ids': torch.nested.nested_tensor(
+                        [expanded_ids[:2], expanded_ids[2:]], layout=torch.jagged),
+                }
+            out = compute_topk_loss(SimpleNamespace(strategy='fsdp'), SimpleNamespace(distillation_loss=c), mode_data, x, 'thd')
             expected = compute_distribution_from_logits(x, logs, ids, c)
             torch.testing.assert_close(out['distillation_losses'], expected['distillation_losses'])
             self.assertTrue(torch.isfinite(torch.autograd.grad(out['distillation_losses'].sum(), x)[0]).all())
@@ -136,7 +190,7 @@ class DistributionLossTests(unittest.TestCase):
             'dp_size': 1, 'batch_num_tokens': 2, 'global_batch_size': 1,
         }, batch_size=[])
         actor = SimpleNamespace(loss_agg_mode='token-mean', global_batch_info={}, loss_scale_factor=None)
-        for mode in DISTRIBUTION_LOSS_MODES:
+        for mode in ('forward_kl', 'jsd', 'entropy_jsd'):
             c = config(mode)
             raw = compute_distribution_from_logits(x, logs, ids, c)
             output = {k: v.squeeze(0) for k, v in raw.items()}
@@ -146,6 +200,48 @@ class DistributionLossTests(unittest.TestCase):
             self.assertAlmostEqual(metrics['distillation/teacher_entropy'], raw['teacher_entropy'][0, [1, 3]].mean().item())
             gradient = torch.autograd.grad(loss, x)[0]
             torch.testing.assert_close(gradient[0, [0, 2, 4]], torch.zeros_like(gradient[0, [0, 2, 4]]))
+
+    def test_entropy_kl_reverse_uses_sampled_logprob_advantage(self):
+        from verl.trainer.distillation.losses import distillation_loss
+        from tensordict import TensorDict
+
+        sampled_teacher = torch.tensor([0., -.5, -1., -5.5, 0.])
+        teacher_rows = torch.zeros(5, 17)
+        teacher_rows[:, -1] = sampled_teacher
+        old = torch.tensor([[-.7, -.8, -5.]])
+        current = torch.tensor([0., -.1, -.9, -2., 0.], requires_grad=True)
+        forward = torch.tensor([0., .4, .3, .2, 0.], requires_grad=True)
+        weight = torch.full((5,), .25)
+        data = TensorDict({
+            'prompts': torch.ones(1, 2, dtype=torch.long),
+            'responses': torch.ones(1, 3, dtype=torch.long),
+            'attention_mask': torch.ones(1, 5, dtype=torch.long),
+            'response_mask': torch.tensor([[1., 0., 1.]]),
+            'old_log_probs': old,
+            'teacher_logprobs': torch.nested.nested_tensor([teacher_rows], layout=torch.jagged),
+            'dp_size': 1, 'batch_num_tokens': 2, 'global_batch_size': 1,
+        }, batch_size=[])
+        output = {
+            'distillation_losses': forward,
+            'student_mass': torch.ones(5), 'teacher_mass': torch.ones(5),
+            'student_entropy': torch.zeros(5), 'teacher_entropy': torch.zeros(5),
+            'forward_weight': weight,
+            'log_probs': current,
+        }
+        actor = SimpleNamespace(loss_agg_mode='token-mean', global_batch_info={}, loss_scale_factor=None)
+        loss, metrics = distillation_loss(actor, SimpleNamespace(distillation_loss=config('entropy_kl')), output, data)
+        sampled_reverse_kl = old - sampled_teacher[1:4].unsqueeze(0)
+        advantage = -.75 * sampled_reverse_kl
+        ratio = (current[1:4].unsqueeze(0) - old).exp()
+        reverse = torch.maximum(-ratio * advantage, -ratio.clamp(.8, 1.2) * advantage)
+        torch.testing.assert_close(loss, forward[[1, 3]].mean() + reverse[0, [0, 2]].mean())
+        self.assertAlmostEqual(metrics['distillation/sampled_reverse_kl'],
+                               (.75 * sampled_reverse_kl[0, [0, 2]]).mean().item())
+        self.assertAlmostEqual(metrics['distillation/pg_clipfrac'], .5)
+        self.assertGreater(reverse[0, 2].item(), 3 * abs(advantage[0, 2]).item())
+        loss.backward()
+        self.assertIsNotNone(current.grad)
+        self.assertIsNotNone(forward.grad)
 
     def test_hydra_configuration(self):
         from hydra import compose, initialize_config_module

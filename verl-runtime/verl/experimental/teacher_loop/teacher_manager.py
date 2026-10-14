@@ -139,6 +139,14 @@ class AsyncTeacherLLMServerManager:
         # the distillation loss settings.
         teacher_ids = torch.tensor(teacher_output.extra_fields["prompt_ids"], dtype=torch.int32)
         teacher_logprobs = torch.tensor(teacher_output.extra_fields["prompt_logprobs"])
+        sampled_logprobs = None
+        if getattr(self.distillation_loss_config, "loss_mode", None) == "entropy_kl":
+            sampled = teacher_output.extra_fields.get("prompt_sampled_logprobs")
+            if sampled is None:
+                raise ValueError("entropy_kl requires the teacher logprob of each sampled token.")
+            sampled_logprobs = torch.tensor(sampled, dtype=teacher_logprobs.dtype)
+            if sampled_logprobs.shape != (teacher_ids.shape[0],):
+                raise ValueError("Teacher sampled-token logprobs are not aligned with top-k rows.")
         returned_length = teacher_ids.shape[0]
         expected_length = len(sequence_ids)
         if returned_length != teacher_logprobs.shape[0]:
@@ -197,8 +205,17 @@ class AsyncTeacherLLMServerManager:
             if returned_length > expected_length:
                 teacher_ids = teacher_ids[-expected_length:]
                 teacher_logprobs = teacher_logprobs[-expected_length:]
+                if sampled_logprobs is not None:
+                    sampled_logprobs = sampled_logprobs[-expected_length:]
             else:
                 left_padding = expected_length - returned_length
                 teacher_ids = F.pad(teacher_ids, (0, 0, left_padding, 0), value=0)
                 teacher_logprobs = F.pad(teacher_logprobs, (0, 0, left_padding, 0), value=0.0)
+                if sampled_logprobs is not None:
+                    sampled_logprobs = F.pad(sampled_logprobs, (left_padding, 0), value=0.0)
+        if sampled_logprobs is not None:
+            # Keep teacher top-k in the first K columns. The last logprob is
+            # the scored student token even when it falls outside top-k.
+            teacher_ids = F.pad(teacher_ids, (0, 1), value=0)
+            teacher_logprobs = torch.cat((teacher_logprobs, sampled_logprobs.unsqueeze(-1)), dim=-1)
         return teacher_ids, teacher_logprobs

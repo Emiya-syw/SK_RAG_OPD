@@ -63,7 +63,7 @@ class DistillationLossConfig(BaseConfig):
     """
 
     loss_mode: str = "k3"
-    topk: Optional[int] = 128
+    topk: Optional[int] = 16
     use_task_rewards: bool = True
     distillation_loss_coef: float = 1.0
     loss_max_clamp: Optional[float] = 10.0
@@ -81,7 +81,7 @@ class DistillationLossConfig(BaseConfig):
     # overhead (saved-tensor total stays constant either way).
     chunked_topk_chunk_size: int = 4096
 
-    # Four normalized teacher-topk + residual-mass distribution objectives.
+    # Four teacher-topk distribution objectives; forward KL uses EOPD top-k normalization.
     jsd_beta: float = 0.5
     entropy_gate_temperature: float = 1.0
     entropy_gate_epsilon: float = 0.05

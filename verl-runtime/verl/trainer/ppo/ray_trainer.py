@@ -1348,6 +1348,7 @@ class RayPPOTrainer:
                 distillation_use_topk
                 and not distillation_loss_cfg.use_task_rewards
                 and not distillation_loss_cfg.use_policy_gradient
+                and distillation_loss_cfg.loss_mode != "entropy_kl"
             )
         ppo_mini_batch_size = self.config.actor_rollout_ref.actor.ppo_mini_batch_size
         ppo_mini_batch_size = ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n

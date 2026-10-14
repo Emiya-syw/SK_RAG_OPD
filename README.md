@@ -172,7 +172,7 @@ DISTILLATION_LOSS_MODE=k1 USE_POLICY_GRADIENT=True \
 或使用 teacher top-k forward KL：
 
 ```bash
-DISTILLATION_LOSS_MODE=forward_kl_topk DISTILLATION_TOPK=128 \
+DISTILLATION_LOSS_MODE=forward_kl_topk DISTILLATION_TOPK=16 \
   bash scripts/train_consistent.sh
 ```
 
@@ -180,16 +180,16 @@ DISTILLATION_LOSS_MODE=forward_kl_topk DISTILLATION_TOPK=128 \
 
 | `DISTILLATION_LOSS_MODE` | 逐 token 损失 |
 | --- | --- |
-| `forward_kl` | `KL(T‖S)` |
+| `forward_kl` | EOPD 式教师 top-k 前向 KL 近似：教师 top-k 内重归一化，学生保留完整词表概率 |
 | `jsd` | `β KL(T‖M) + (1−β) KL(S‖M)`，默认 `β=0.5`，即标准对称 JSD |
-| `entropy_kl` | `α KL(T‖S) + (1−α) KL(S‖T)` |
+| `entropy_kl` | `α` 乘上述前向 KL 近似；反向项以 `(1−α)` 加权采样 token 的师生 logprob 差，并通过 PPO 式策略梯度更新 |
 | `entropy_jsd` | 同上广义 JSD 公式，但逐 token 设置 `β=1−α` |
 
 这里 `M=βT+(1−β)S`，`α=ε+(1−2ε) sigmoid((H(T)−H(S))/τ)`。教师熵更高时，`entropy_kl` 增加前向权重；`entropy_jsd` 减小教师混合系数 β，趋向前向 KL 的方向（并不等价于直接混合两个 KL）。教师分布与熵门控权重停止梯度，学生在 M 中的贡献保留梯度。熵采用自然对数，单位为 nat。
 
 ```bash
 # 将模式替换为 forward_kl / jsd / entropy_kl / entropy_jsd
-DISTILLATION_LOSS_MODE=entropy_jsd DISTILLATION_TOPK=128 \
+DISTILLATION_LOSS_MODE=entropy_jsd DISTILLATION_TOPK=16 \
   USE_POLICY_GRADIENT=false ENTROPY_GATE_TEMPERATURE=1.0 \
   ENTROPY_GATE_EPSILON=0.05 ENTROPY_JSD_NORMALIZE=false \
   bash scripts/train_consistent.sh
@@ -199,11 +199,11 @@ DISTILLATION_LOSS_MODE=jsd JSD_BETA=0.5 USE_POLICY_GRADIENT=false \
   bash scripts/run_opd.sh data/verl/train.parquet outputs/opd_jsd
 ```
 
-四种新模式在 **teacher top-k token＋一个剩余概率桶** 上归一化计算；学生使用相同 token 集合。熵也基于此分布，不能解释成完整词表熵；只有覆盖整个词表时才是完整词表损失。剩余桶保留总概率，但无法区分桶内 token。这与旧 `forward_kl_topk` 的截断求和不同。日志包含 `distillation/student_entropy`、`teacher_entropy`，以及 `forward_weight` 或 `jsd_beta`，只统计 response mask 内位置。师生须使用一致的词表及 token ID。
+`forward_kl` 和 `entropy_kl` 的前向项按 EOPD 论文的 top-k 公式计算，默认 `DISTILLATION_TOPK=16`：教师概率仅在 top-k 内重归一化，学生使用完整 softmax 对这些 token 的原始概率，因此仍惩罚学生分配给 top-k 外的概率。`entropy_kl` 的反向项使用学生实际采样词在师生模型下的 logprob，以 `(1−α)(log T−log S_old)` 为 PPO 式优势。即使采样词不在教师 top-16 中，也会单独取得其教师概率；独立的 `k3` 模式及其公式保持原样。`jsd`、`entropy_jsd` 和熵门控只使用教师 top-k 内的 token，并分别在这些 token 上归一化师生概率，**不使用尾部桶**；JSD 忽略 top-k 外的概率，日志里的熵是 top-k 条件熵，不是完整词表熵。`student_mass` 和 `teacher_mass` 则记录归一化前各自在 top-k 内的原始概率质量。只有 top-k 覆盖整个词表时，前向项才是精确的完整词表 KL。这也不同于旧 `forward_kl_topk` 的未归一化截断求和。日志包含 `distillation/student_entropy`、`teacher_entropy`，以及 `forward_weight` 或 `jsd_beta`，只统计 response mask 内位置。师生须使用一致的词表及 token ID。
 
 默认的 `k3` 反向 KL 路径只使用 rollout 实际采样 token 的师生 logprob，是单样本估计，并未请求完整词表概率。四种分布损失若要改成精确的完整词表版本，需要 teacher 返回每个回答位置的全量 logits；当前 vLLM teacher 接口只提供 prompt logprob 的 top-k 输出。
 
-新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0；`ENTROPY_GATE_EPSILON` 默认 0.05 且须在 `(0,0.5)` 内。`ENTROPY_JSD_NORMALIZE=true` 仅对 `entropy_jsd` 额外除以 `β(1−β)`，会改变损失尺度，默认关闭。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`，采用 `1e-12` 概率下限后归一化；仍受 `LOSS_MAX_CLAMP` 限制（默认 10，设为 `null` 可关闭）。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `jsd_beta`、`entropy_gate_temperature`、`entropy_gate_epsilon`、`entropy_jsd_normalize`。
+新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。对 `entropy_kl`，此开关关闭通用蒸馏策略梯度路径，但其反向分量会在内部单独使用 EOPD 式标准 PPO clipping，不使用通用 `vanilla` PPO 的 dual-clip。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0；`ENTROPY_GATE_EPSILON` 默认 0.05 且须在 `(0,0.5)` 内。`ENTROPY_JSD_NORMALIZE=true` 仅对 `entropy_jsd` 额外除以 `β(1−β)`，会改变损失尺度，默认关闭。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`；JSD 和熵门控在 top-k 内归一化时采用 `1e-12` 概率下限，前向 KL 的学生原始概率不采用该下限。`LOSS_MAX_CLAMP` 仍限制直接反传的分布项（默认 10，设为 `null` 可关闭）；`entropy_kl` 的反向项使用 PPO 概率比 clipping，不应用这个损失截断。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `jsd_beta`、`entropy_gate_temperature`、`entropy_gate_epsilon`、`entropy_jsd_normalize`。
 
 `train_eval_pipeline.sh` 的 2B 自动预设在四种分布损失下将学生反传 token 预算从 65536 降至 24576，并默认启用 `USE_CHUNKED_TOPK=true`、`CHUNKED_TOPK_CHUNK_SIZE=512`，以降低词表 logits 相关的峰值显存；显式环境变量仍优先。遇到 OOM 可进一步减小 `MAX_PROMPT_LENGTH` 与 `MAX_TOKEN_LEN_PER_GPU`，同时确保预算至少覆盖最大 prompt＋response 长度。`TRAIN_BATCH_SIZE` 控制全局样本数，不直接替代每卡的反传 token 预算。
 

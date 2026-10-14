@@ -78,9 +78,10 @@ def _extract_prompt_logprobs_sglang(
 ) -> None:
     """Shape SGLang input-logprobs into the vLLM ``extract_prompt_logprobs`` contract.
     Populates ``result_dict`` with two ``[sequence_length, max(num_prompt_logprobs, 1)]``
-    lists — ``prompt_ids`` and ``prompt_logprobs`` — so the distillation teacher
-    consumer in ``teacher_manager.AsyncTeacherLLMServerManager`` can treat vLLM and
-    SGLang teachers interchangeably.
+    lists — ``prompt_ids`` and ``prompt_logprobs`` — plus sampled-token logprobs
+    when top-k is requested, so the distillation teacher consumer in
+    ``teacher_manager.AsyncTeacherLLMServerManager`` can treat vLLM and SGLang
+    teachers interchangeably.
     SGLang returns input logprobs with length ``S == len(input_ids)`` whose first
     entry has ``logprob=None`` (no predicting context). That matches the vLLM
     convention, so we skip entry 0 and append a trailing dummy row to keep the
@@ -91,6 +92,7 @@ def _extract_prompt_logprobs_sglang(
         input_top_logprobs = meta_info.get("input_top_logprobs") or []
     prompt_ids_ls: list[list[int]] = []
     prompt_logprobs_ls: list[list[float]] = []
+    sampled_logprobs_ls: list[float] = []
     # Entry 0 has logprob=None (no predicting context); skip it, matching vLLM.
     for position in range(1, len(input_token_logprobs)):
         if num_prompt_logprobs == 0:
@@ -98,6 +100,7 @@ def _extract_prompt_logprobs_sglang(
             prompt_ids_ls.append([int(token_id)])
             prompt_logprobs_ls.append([float(logprob)])
         else:
+            sampled_logprobs_ls.append(float(input_token_logprobs[position][0]))
             top_entries = input_top_logprobs[position]
             # SGLang returns ranked best-first; we preserve that ordering so rank
             # 0 is the top-1 token, matching the vLLM extractor's rank-1 slot.
@@ -112,12 +115,16 @@ def _extract_prompt_logprobs_sglang(
     pad_width = max(num_prompt_logprobs, 1)
     prompt_ids_ls.append([0] * pad_width)
     prompt_logprobs_ls.append([0.0] * pad_width)
+    if num_prompt_logprobs > 0:
+        sampled_logprobs_ls.append(0.0)
     assert len(prompt_ids_ls) == sequence_length, (
         f"SGLang prompt_logprobs length ({len(prompt_ids_ls)}) does not match "
         f"sequence length ({sequence_length}); check logprob_start_len=0 invariant."
     )
     result_dict["prompt_ids"] = prompt_ids_ls
     result_dict["prompt_logprobs"] = prompt_logprobs_ls
+    if num_prompt_logprobs > 0:
+        result_dict["prompt_sampled_logprobs"] = sampled_logprobs_ls
 
 
 class SGLangHttpServer:

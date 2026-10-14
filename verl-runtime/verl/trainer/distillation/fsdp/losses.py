@@ -111,6 +111,11 @@ def compute_forward_kl_topk(
     # for trade-offs and benchmark numbers.
     loss_config: DistillationLossConfig = config.distillation_loss
     if loss_config.loss_mode in DISTRIBUTION_LOSS_MODES:
+        if loss_config.loss_mode == "entropy_kl":
+            # The final column carries the teacher probability of the sampled
+            # token for the sampled reverse term; it is not part of teacher top-k.
+            teacher_topk_log_probs = teacher_topk_log_probs[..., :-1]
+            teacher_topk_ids = teacher_topk_ids[..., :-1]
         return compute_distribution_from_logits(
             student_logits, teacher_topk_log_probs, teacher_topk_ids, loss_config
         )

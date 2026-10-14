@@ -529,15 +529,20 @@ def extract_prompt_logprobs(output: RequestOutput, num_prompt_logprobs: Optional
     if num_prompt_logprobs is None:
         return
 
-    prompt_logprobs_ls, prompt_ids_ls = [], []
+    prompt_logprobs_ls, prompt_ids_ls, sampled_logprobs_ls = [], [], []
     # NOTE: logprob of first prompt token is None.
-    for logprobs_dict in output.prompt_logprobs[1:]:
+    for position, logprobs_dict in enumerate(output.prompt_logprobs[1:], start=1):
         if num_prompt_logprobs == 0:
             token_id_str = list(logprobs_dict.keys())[0]
             logprob = logprobs_dict[token_id_str].logprob
             prompt_logprobs_ls.append([logprob])
             prompt_ids_ls.append([int(token_id_str)])
         else:
+            sampled_id = output.prompt_token_ids[position]
+            sampled_entry = logprobs_dict.get(sampled_id, logprobs_dict.get(str(sampled_id)))
+            if sampled_entry is None:
+                raise ValueError(f"Prompt logprobs missing scored token {sampled_id} at position {position}.")
+            sampled_logprobs_ls.append(sampled_entry.logprob)
             prompt_ids = [None] * num_prompt_logprobs
             prompt_logprobs = [None] * num_prompt_logprobs
             # We get either top-k logprobs or top-k plus the sampled logprob (if sampled token is not in top-k)
@@ -555,6 +560,10 @@ def extract_prompt_logprobs(output: RequestOutput, num_prompt_logprobs: Optional
     # NOTE: pad a dummy prompt logprob for last prompt token.
     prompt_logprobs_ls.append([0.0] * max(num_prompt_logprobs, 1))
     prompt_ids_ls.append([0] * max(num_prompt_logprobs, 1))
+    if num_prompt_logprobs > 0:
+        sampled_logprobs_ls.append(0.0)
 
     result_dict["prompt_ids"] = prompt_ids_ls
     result_dict["prompt_logprobs"] = prompt_logprobs_ls
+    if num_prompt_logprobs > 0:
+        result_dict["prompt_sampled_logprobs"] = sampled_logprobs_ls

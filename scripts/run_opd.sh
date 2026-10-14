@@ -160,8 +160,8 @@ ROLLOUT_ENABLE_PREFIX_CACHING="${ROLLOUT_ENABLE_PREFIX_CACHING:-true}"
 DISTILLATION_ENABLED="${DISTILLATION_ENABLED:-true}"
 # loss 类型：k3、rollout_mixture_k3、forward_kl_topk（旧版）、forward_kl、jsd、entropy_kl、entropy_jsd、k1（仅 PG）等。
 DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
-# teacher top-k 数。分布损失使用；四个新模式统一补上剩余概率桶，不是完整词表熵。
-DISTILLATION_TOPK="${DISTILLATION_TOPK:-128}"
+# teacher top-k 数；默认与 EOPD 的前向 KL 实验保持一致。
+DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}"
 # jsd 默认 0.5 为标准对称 JSD；beta 是混合分布中教师的系数。
 JSD_BETA="${JSD_BETA:-0.5}"
 # 熵差软门控：alpha=eps+(1-2eps)*sigmoid((H_teacher-H_student)/temperature)。
