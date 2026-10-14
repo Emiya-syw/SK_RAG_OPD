@@ -16,6 +16,7 @@
 import torch
 import torch.nn.functional as F
 
+from verl.trainer.distillation.distribution_losses import DISTRIBUTION_LOSS_MODES, compute_distribution_from_logits
 from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     slice_input_tensor,
@@ -109,6 +110,10 @@ def compute_forward_kl_topk(
     # F.log_softmax path OOMs. See ``DistillationLossConfig.use_chunked_topk``
     # for trade-offs and benchmark numbers.
     loss_config: DistillationLossConfig = config.distillation_loss
+    if loss_config.loss_mode in DISTRIBUTION_LOSS_MODES:
+        return compute_distribution_from_logits(
+            student_logits, teacher_topk_log_probs, teacher_topk_ids, loss_config
+        )
     use_chunked_topk = getattr(loss_config, "use_chunked_topk", False)
     if use_chunked_topk:
         # log_softmax is monotonic, so topk(logits) == topk(log_softmax(logits)).

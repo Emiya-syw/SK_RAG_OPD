@@ -19,6 +19,7 @@ import torch
 from tensordict import TensorDict
 
 from verl.base_config import BaseConfig
+from verl.trainer.distillation.distribution_losses import DISTRIBUTION_LOSS_MODES
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.metric import AggregationType, Metric
 from verl.workers.config import ActorConfig, DistillationConfig, DistillationLossConfig
@@ -141,6 +142,8 @@ def compute_topk_loss(
 
             distillation_loss_fn = fsdp_losses.compute_forward_kl_topk
         case "megatron":
+            if distillation_config.distillation_loss.loss_mode in DISTRIBUTION_LOSS_MODES:
+                raise NotImplementedError("The new distribution losses currently require the FSDP backend.")
             import verl.trainer.distillation.megatron.losses as megatron_losses
 
             distillation_loss_fn = megatron_losses.compute_forward_kl_topk
@@ -302,7 +305,9 @@ def distillation_loss(
     return distillation_loss, distillation_metrics
 
 
-@register_distillation_loss(DistillationLossSettings(names=["forward_kl_topk"], use_topk=True))  # type: ignore[arg-type]
+@register_distillation_loss(
+    DistillationLossSettings(names=["forward_kl_topk", *DISTRIBUTION_LOSS_MODES], use_topk=True)
+)  # type: ignore[arg-type]
 def compute_forward_kl_topk(
     config: ActorConfig,
     distillation_config: DistillationConfig,
@@ -316,6 +321,11 @@ def compute_forward_kl_topk(
     - distillation_metrics: Dictionary of metrics.
     """
     # topk loss has been computed in logits processor
+    if distillation_config.distillation_loss.loss_mode in DISTRIBUTION_LOSS_MODES:
+        if "teacher_entropy" not in model_output:
+            raise NotImplementedError(
+                "Distribution losses require the eager distribution logits processor; disable fused kernels."
+            )
     distillation_losses = no_padding_2_padding(model_output["distillation_losses"], data)
     student_mass = no_padding_2_padding(model_output["student_mass"], data)
     teacher_mass = no_padding_2_padding(model_output["teacher_mass"], data)
@@ -360,6 +370,10 @@ def compute_forward_kl_topk(
         "distillation/teacher_mass_max": Metric(AggregationType.MAX, teacher_mass.max()),
         **overlap_metrics,
     }
+    for name in ("student_entropy", "teacher_entropy", "forward_weight", "jsd_beta"):
+        if name in model_output:
+            values = no_padding_2_padding(model_output[name], data)
+            distillation_metrics[f"distillation/{name}"] = values[response_mask_bool].detach().mean().item()
 
     # Due to use of top-k, student and teacher distributions don't sum to 1 -> divergences can be negative.
     distillation_losses = distillation_losses.clamp_min(0.0)

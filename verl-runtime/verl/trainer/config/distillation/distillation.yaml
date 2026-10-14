@@ -26,6 +26,14 @@ distillation_loss:
   # If distillation loss requires top-k logits, this is the value of k
   topk: 32
 
+  # Normalized teacher-topk + one residual bucket (FSDP eager logits).
+  # jsd is standard symmetric JSD at beta=.5; beta weights the teacher in M.
+  jsd_beta: 0.5
+  entropy_gate_temperature: 1.0
+  entropy_gate_epsilon: 0.05
+  # Adaptive JSD only: divide by beta*(1-beta). False preserves standard scale.
+  entropy_jsd_normalize: false
+
   # Whether to include task rewards alongside distillation loss.
   use_task_rewards: true
 

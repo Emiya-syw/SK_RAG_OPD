@@ -70,7 +70,7 @@ class DistillationLossConfig(BaseConfig):
     log_prob_min_clamp: Optional[float] = -10.0
 
     # Chunked top-K log-probs (opt-in, avoids [B, T, V] log_softmax buffer
-    # at long context). Only consumed by ``loss_mode='forward_kl_topk'``.
+    # at long context). Used by forward_kl_topk and the four distribution losses.
     # Default ``False`` to preserve short-context performance (chunked path
     # has ~6x time overhead at N=14K, V=152K). Set ``True`` when hitting OOM
     # at long context (>=64K tokens, V=152K) where the baseline path OOMs.
@@ -80,6 +80,12 @@ class DistillationLossConfig(BaseConfig):
     # smaller chunks reduce per-chunk memory but increase kernel-launch
     # overhead (saved-tensor total stays constant either way).
     chunked_topk_chunk_size: int = 4096
+
+    # Four normalized teacher-topk + residual-mass distribution objectives.
+    jsd_beta: float = 0.5
+    entropy_gate_temperature: float = 1.0
+    entropy_gate_epsilon: float = 0.05
+    entropy_jsd_normalize: bool = False
 
     use_policy_gradient: bool = True
     policy_loss_mode: str = "vanilla"
@@ -102,6 +108,12 @@ class DistillationLossConfig(BaseConfig):
         from verl.trainer.distillation.losses import DistillationLossSettings, get_distillation_loss_settings
 
         self.loss_settings: DistillationLossSettings = get_distillation_loss_settings(self.loss_mode)
+        from verl.trainer.distillation.distribution_losses import validate_distribution_settings
+
+        validate_distribution_settings(
+            self.loss_mode, self.topk, self.jsd_beta, self.entropy_gate_temperature,
+            self.entropy_gate_epsilon, self.use_policy_gradient,
+        )
 
         if self.policy_loss_mode != "vanilla":
             raise NotImplementedError(

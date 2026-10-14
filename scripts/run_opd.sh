@@ -158,10 +158,17 @@ ROLLOUT_ENABLE_PREFIX_CACHING="${ROLLOUT_ENABLE_PREFIX_CACHING:-true}"
 # --- OPD teacher 与蒸馏损失 --------------------------------------------------
 # 是否启用蒸馏。当前脚本必须为 true；false 会退化为无有效 reward 的训练。
 DISTILLATION_ENABLED="${DISTILLATION_ENABLED:-true}"
-# loss 类型。可选：k3（推荐直接反传）、rollout_mixture_k3、forward_kl_topk（更完整但更耗算力）、k1（仅配 PG），以及 kl/abs/mse/k2/low_var_kl。
+# loss 类型：k3、rollout_mixture_k3、forward_kl_topk（旧版）、forward_kl、jsd、entropy_kl、entropy_jsd、k1（仅 PG）等。
 DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
-# teacher/student top-k 数。仅 forward_kl_topk 使用；越大越接近完整分布、越耗显存和带宽。
+# teacher top-k 数。分布损失使用；四个新模式统一补上剩余概率桶，不是完整词表熵。
 DISTILLATION_TOPK="${DISTILLATION_TOPK:-128}"
+# jsd 默认 0.5 为标准对称 JSD；beta 是混合分布中教师的系数。
+JSD_BETA="${JSD_BETA:-0.5}"
+# 熵差软门控：alpha=eps+(1-2eps)*sigmoid((H_teacher-H_student)/temperature)。
+ENTROPY_GATE_TEMPERATURE="${ENTROPY_GATE_TEMPERATURE:-1.0}"
+ENTROPY_GATE_EPSILON="${ENTROPY_GATE_EPSILON:-0.05}"
+# 仅 entropy_jsd：可选除以 beta*(1-beta)，默认不额外缩放。
+ENTROPY_JSD_NORMALIZE="${ENTROPY_JSD_NORMALIZE:-false}"
 # 蒸馏 loss 权重。非负浮点数；与 task reward 联用时控制蒸馏占比。
 DISTILLATION_LOSS_COEF="${DISTILLATION_LOSS_COEF:-1.0}"
 # 是否叠加任务 reward。可选：false/true；本项目默认 zero_reward，开启前应替换 reward 函数。
@@ -193,7 +200,7 @@ fi
 LOSS_MAX_CLAMP="${LOSS_MAX_CLAMP:-10.0}"
 # log-prob 下界裁剪。负数或 null；用于数值稳定。
 LOG_PROB_MIN_CLAMP="${LOG_PROB_MIN_CLAMP:--10.0}"
-# top-k 分块计算。可选：false/true；仅长上下文 forward_kl_topk OOM 时开启，速度会下降。
+# top-k 分块计算。可选：false/true；分布损失长上下文 OOM 时开启，速度会下降。
 USE_CHUNKED_TOPK="${USE_CHUNKED_TOPK:-false}"
 # top-k 的 token 分块大小。正整数；越小峰值显存越低、kernel 调用越多。
 CHUNKED_TOPK_CHUNK_SIZE="${CHUNKED_TOPK_CHUNK_SIZE:-4096}"
@@ -323,6 +330,7 @@ render_training_config() {
     ROLLOUT_MAX_NUM_SEQS ROLLOUT_ENABLE_CHUNKED_PREFILL ROLLOUT_ENABLE_PREFIX_CACHING
   render_config_group "teacher_and_distillation" \
     DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK \
+    JSD_BETA ENTROPY_GATE_TEMPERATURE ENTROPY_GATE_EPSILON ENTROPY_JSD_NORMALIZE \
     DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT \
     ROLLOUT_MIXTURE_ENABLED ROLLOUT_MIXTURE_OFF_POLICY_RATIO ROLLOUT_MIXTURE_FIELD \
     LOSS_MAX_CLAMP \
@@ -547,6 +555,10 @@ exec "${PYTHON_BIN}" -m verl.trainer.main_ppo \
   "+distillation.teacher_models.teacher_model.inference.engine_kwargs.vllm.attention_backend=${VLLM_ATTENTION_BACKEND}" \
   "distillation.distillation_loss.loss_mode=${DISTILLATION_LOSS_MODE}" \
   "distillation.distillation_loss.topk=${DISTILLATION_TOPK}" \
+  "distillation.distillation_loss.jsd_beta=${JSD_BETA}" \
+  "distillation.distillation_loss.entropy_gate_temperature=${ENTROPY_GATE_TEMPERATURE}" \
+  "distillation.distillation_loss.entropy_gate_epsilon=${ENTROPY_GATE_EPSILON}" \
+  "distillation.distillation_loss.entropy_jsd_normalize=${ENTROPY_JSD_NORMALIZE}" \
   "distillation.distillation_loss.distillation_loss_coef=${DISTILLATION_LOSS_COEF}" \
   "distillation.distillation_loss.use_task_rewards=${USE_TASK_REWARDS}" \
   "distillation.distillation_loss.use_policy_gradient=${USE_POLICY_GRADIENT}" \
