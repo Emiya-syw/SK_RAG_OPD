@@ -201,6 +201,8 @@ DISTILLATION_LOSS_MODE=jsd JSD_BETA=0.5 USE_POLICY_GRADIENT=false \
 
 四种新模式在 **teacher top-k token＋一个剩余概率桶** 上归一化计算；学生使用相同 token 集合。熵也基于此分布，不能解释成完整词表熵；只有覆盖整个词表时才是完整词表损失。剩余桶保留总概率，但无法区分桶内 token。这与旧 `forward_kl_topk` 的截断求和不同。日志包含 `distillation/student_entropy`、`teacher_entropy`，以及 `forward_weight` 或 `jsd_beta`，只统计 response mask 内位置。师生须使用一致的词表及 token ID。
 
+默认的 `k3` 反向 KL 路径只使用 rollout 实际采样 token 的师生 logprob，是单样本估计，并未请求完整词表概率。四种分布损失若要改成精确的完整词表版本，需要 teacher 返回每个回答位置的全量 logits；当前 vLLM teacher 接口只提供 prompt logprob 的 top-k 输出。
+
 新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0；`ENTROPY_GATE_EPSILON` 默认 0.05 且须在 `(0,0.5)` 内。`ENTROPY_JSD_NORMALIZE=true` 仅对 `entropy_jsd` 额外除以 `β(1−β)`，会改变损失尺度，默认关闭。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`，采用 `1e-12` 概率下限后归一化；仍受 `LOSS_MAX_CLAMP` 限制（默认 10，设为 `null` 可关闭）。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `jsd_beta`、`entropy_gate_temperature`、`entropy_gate_epsilon`、`entropy_jsd_normalize`。
 
 Rollout-mixture distillation 可按比例把 on-policy rollout 替换为数据中的 golden/off-policy response，降低训练分布被退化长 rollout 主导的风险。`prepare_verl_data.py` 会按 Instruct 输出格式把 `teacher_demonstration` 和 `reference_answer/response` 以普通 assistant 文本拼接后写入 `extra_info.golden_response`，不会加入 `<think>` 标签。该模式保持默认的 thinking-off 配置，并关闭 teacher-only privileged prompt，保证 teacher/student 评分提示词一致：

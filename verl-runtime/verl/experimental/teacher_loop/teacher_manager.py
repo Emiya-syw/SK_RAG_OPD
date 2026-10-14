@@ -151,9 +151,10 @@ class AsyncTeacherLLMServerManager:
             # Hugging Face processor used by the agent loop. Distillation only
             # consumes response positions, so preserve the response-aligned suffix
             # and add/drop prompt-only rows on the left. For estimator losses
-            # (prompt_logprobs=0), prompt_ids contains the scored token at each row;
-            # verify the complete response suffix before realigning.
-            if not multi_modal_data or teacher_ids.ndim != 2 or teacher_ids.shape[1] != 1:
+            # (prompt_logprobs=0), prompt_ids contains the scored token at each row.
+            # For top-k, verify against the actual processed prompt token ids:
+            # the scored token may not appear among the top-k columns.
+            if not multi_modal_data or teacher_ids.ndim != 2:
                 raise ValueError(
                     "Teacher sequence length mismatch cannot be safely aligned: "
                     f"expected={expected_length}, teacher_ids={returned_length}, "
@@ -164,7 +165,20 @@ class AsyncTeacherLLMServerManager:
                     "Teacher output is too short to contain the response: "
                     f"returned={returned_length}, response={response_length}, expected={expected_length}"
                 )
-            returned_response_ids = teacher_ids[-(response_length + 1) : -1, 0].tolist()
+            scored_prompt_ids = teacher_output.extra_fields.get("scored_prompt_token_ids")
+            if scored_prompt_ids is not None:
+                if len(scored_prompt_ids) != returned_length:
+                    raise ValueError(
+                        "Teacher scored prompt ids and logprob rows have different lengths: "
+                        f"prompt_ids={len(scored_prompt_ids)}, teacher_logprobs={returned_length}"
+                    )
+                returned_response_ids = scored_prompt_ids[-response_length:]
+            elif teacher_ids.shape[1] == 1:
+                returned_response_ids = teacher_ids[-(response_length + 1) : -1, 0].tolist()
+            else:
+                raise ValueError(
+                    "Top-k teacher alignment requires scored_prompt_token_ids from the teacher server."
+                )
             expected_response_ids = sequence_ids[-response_length:]
             if returned_response_ids != expected_response_ids:
                 raise ValueError(

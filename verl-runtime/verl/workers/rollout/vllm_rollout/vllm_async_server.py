@@ -708,6 +708,11 @@ class vLLMHttpServer:
             num_prompt_logprobs=sampling_params.prompt_logprobs,
             result_dict=extra_fields,
         )
+        if sampling_params.prompt_logprobs is not None:
+            # Top-k columns do not necessarily include the scored response token.
+            # Return the actual prompt ids so distillation can verify suffix
+            # alignment if multimodal processing changes prompt length.
+            extra_fields["scored_prompt_token_ids"] = list(final_res.prompt_token_ids)
         token_ids = final_res.outputs[0].token_ids
         log_probs = None
         if sampling_params.logprobs is not None:
