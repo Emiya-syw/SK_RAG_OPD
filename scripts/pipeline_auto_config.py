@@ -14,6 +14,7 @@ SIGNATURES = {(2048, 28): 2, (2560, 36): 4, (4096, 36): 8}
 # token budget, rollout memory fraction, generation batch (per GPU)
 STUDENT = {2: (65536, '0.72', 16), 4: (49152, '0.65', 8), 8: (21505, '0.40', 4)}
 TEACHER = {2: ('0.60', 16), 4: ('0.65', 8), 8: ('0.50', 2)}
+DISTRIBUTION_LOSSES = {'forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd'}
 
 
 def model_size(path):
@@ -81,9 +82,16 @@ def choose(env, student, teacher, devices):
         raise ValueError('Batch must be divisible by mini-batch, and mini-batch by student GPU count')
     tokens, rollout_memory, generation_batch = STUDENT[student]
     context = int(env.get('MAX_PROMPT_LENGTH', 20480)) + int(env.get('MAX_RESPONSE_LENGTH', 1024)) + 1
-    budget = int(setting('MAX_TOKEN_LEN_PER_GPU', max(tokens, context)))
+    # Distribution objectives keep gradients through a vocabulary-sized logit
+    # tensor. The aggressive k3 token budget can exceed 80 GiB at backward.
+    distribution_loss = env.get('DISTILLATION_LOSS_MODE') in DISTRIBUTION_LOSSES
+    default_budget = max(min(tokens, 24576), context) if distribution_loss else max(tokens, context)
+    budget = int(setting('MAX_TOKEN_LEN_PER_GPU', default_budget))
     if budget < context - 1:
         raise ValueError('MAX_TOKEN_LEN_PER_GPU is smaller than prompt + response length')
+    if distribution_loss:
+        setting('USE_CHUNKED_TOPK', 'true')
+        setting('CHUNKED_TOPK_CHUNK_SIZE', 512)
     for key, value in {
         'MICRO_BATCH_SIZE': 1, 'USE_DYNAMIC_BSZ': 'true',
         'PARAM_OFFLOAD': 'false', 'OPTIMIZER_OFFLOAD': 'false',

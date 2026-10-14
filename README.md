@@ -205,6 +205,8 @@ DISTILLATION_LOSS_MODE=jsd JSD_BETA=0.5 USE_POLICY_GRADIENT=false \
 
 新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0；`ENTROPY_GATE_EPSILON` 默认 0.05 且须在 `(0,0.5)` 内。`ENTROPY_JSD_NORMALIZE=true` 仅对 `entropy_jsd` 额外除以 `β(1−β)`，会改变损失尺度，默认关闭。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`，采用 `1e-12` 概率下限后归一化；仍受 `LOSS_MAX_CLAMP` 限制（默认 10，设为 `null` 可关闭）。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `jsd_beta`、`entropy_gate_temperature`、`entropy_gate_epsilon`、`entropy_jsd_normalize`。
 
+`train_eval_pipeline.sh` 的 2B 自动预设在四种分布损失下将学生反传 token 预算从 65536 降至 24576，并默认启用 `USE_CHUNKED_TOPK=true`、`CHUNKED_TOPK_CHUNK_SIZE=512`，以降低词表 logits 相关的峰值显存；显式环境变量仍优先。遇到 OOM 可进一步减小 `MAX_PROMPT_LENGTH` 与 `MAX_TOKEN_LEN_PER_GPU`，同时确保预算至少覆盖最大 prompt＋response 长度。`TRAIN_BATCH_SIZE` 控制全局样本数，不直接替代每卡的反传 token 预算。
+
 Rollout-mixture distillation 可按比例把 on-policy rollout 替换为数据中的 golden/off-policy response，降低训练分布被退化长 rollout 主导的风险。`prepare_verl_data.py` 会按 Instruct 输出格式把 `teacher_demonstration` 和 `reference_answer/response` 以普通 assistant 文本拼接后写入 `extra_info.golden_response`，不会加入 `<think>` 标签。该模式保持默认的 thinking-off 配置，并关闭 teacher-only privileged prompt，保证 teacher/student 评分提示词一致：
 
 ```bash

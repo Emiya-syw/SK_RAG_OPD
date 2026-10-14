@@ -56,6 +56,21 @@ class PresetTest(unittest.TestCase):
             config = auto.choose({'TRAIN_BATCH_SIZE': '12'}, 2, 2, devices)
             self.assertEqual(config['PPO_MINI_BATCH_SIZE'], '12')
 
+    def test_distribution_losses_limit_backward_peak(self):
+        devices = [{'index': str(i)} for i in range(4)]
+        for mode in ('forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd'):
+            with self.subTest(mode=mode):
+                config = auto.choose({'DISTILLATION_LOSS_MODE': mode}, 2, 2, devices)
+                self.assertEqual(config['MAX_TOKEN_LEN_PER_GPU'], '24576')
+                self.assertEqual(config['USE_CHUNKED_TOPK'], 'true')
+                self.assertEqual(config['CHUNKED_TOPK_CHUNK_SIZE'], '512')
+                overrides = {'DISTILLATION_LOSS_MODE': mode, 'MAX_TOKEN_LEN_PER_GPU': '32768',
+                             'USE_CHUNKED_TOPK': 'false', 'CHUNKED_TOPK_CHUNK_SIZE': '256'}
+                config = auto.choose(overrides, 2, 2, devices)
+                for key in ('MAX_TOKEN_LEN_PER_GPU', 'USE_CHUNKED_TOPK', 'CHUNKED_TOPK_CHUNK_SIZE'):
+                    self.assertEqual(config[key], overrides[key])
+        self.assertNotIn('USE_CHUNKED_TOPK', auto.choose({'DISTILLATION_LOSS_MODE': 'k3'}, 2, 2, devices))
+
     def test_all_18_combinations(self):
         for count in (4, 8):
             for student in (2, 4, 8):
