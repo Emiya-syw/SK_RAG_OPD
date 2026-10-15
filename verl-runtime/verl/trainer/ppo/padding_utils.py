@@ -119,7 +119,7 @@ def construct_minimal_padding_template(
     # thousands of tokens long, while this synthetic sample is exactly
     # SYNTHETIC_PADDING_SEQ_LEN tokens. Keeping the copied source tensors makes
     # the packed token offsets disagree during the actor update.
-    for teacher_field in ("teacher_ids", "teacher_logprobs"):
+    for teacher_field in ("teacher_ids", "teacher_logprobs", "teacher_entropy"):
         teacher_value = template_sample.get(teacher_field)
         if isinstance(teacher_value, torch.Tensor):
             template_sample[teacher_field] = torch.zeros(

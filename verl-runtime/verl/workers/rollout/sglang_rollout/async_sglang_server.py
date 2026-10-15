@@ -125,6 +125,13 @@ def _extract_prompt_logprobs_sglang(
     result_dict["prompt_logprobs"] = prompt_logprobs_ls
     if num_prompt_logprobs > 0:
         result_dict["prompt_sampled_logprobs"] = sampled_logprobs_ls
+        prompt_entropies = meta_info.get("prompt_entropies")
+        if prompt_entropies is not None:
+            if len(prompt_entropies) == sequence_length:
+                prompt_entropies = prompt_entropies[1:]
+            elif len(prompt_entropies) != sequence_length - 1:
+                raise ValueError("Teacher prompt_entropies must have one value per prompt token or scored token.")
+            result_dict["prompt_entropies"] = [float(value) for value in prompt_entropies] + [0.0]
 
 
 class SGLangHttpServer:

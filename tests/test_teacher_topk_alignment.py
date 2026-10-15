@@ -3,15 +3,17 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
+import torch
 
 from verl.experimental.teacher_loop.teacher_manager import AsyncTeacherLLMServerManager
 
 
 class FakeClient:
-    def __init__(self, rows, scored_ids=None, sampled_logprobs=None):
+    def __init__(self, rows, scored_ids=None, sampled_logprobs=None, entropies=None):
         self.rows = rows
         self.scored_ids = scored_ids
         self.sampled_logprobs = sampled_logprobs
+        self.entropies = entropies
 
     async def generate(self, **kwargs):
         width = len(self.rows[0]) if self.rows else 1
@@ -22,6 +24,8 @@ class FakeClient:
         }
         if self.sampled_logprobs is not None:
             extra_fields['prompt_sampled_logprobs'] = self.sampled_logprobs
+        if self.entropies is not None:
+            extra_fields['prompt_entropies'] = self.entropies
         return SimpleNamespace(extra_fields=extra_fields)
 
 
@@ -44,7 +48,8 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
         # vLLM compresses the image span from three student tokens to one.
         expected = [11, 12, 13, 14, 21, 22]
         rows = [[101, 102], [111, 112], [121, 122], [131, 132]]
-        ids, logs = score(FakeClient(rows, [11, 14, 21, 22]), expected)
+        ids, logs, entropy = score(FakeClient(rows, [11, 14, 21, 22]), expected)
+        self.assertIsNone(entropy)
         self.assertEqual(ids.shape, (6, 2))
         self.assertEqual(ids[:2].tolist(), [[0, 0], [0, 0]])
         self.assertEqual(ids[-2:].tolist(), rows[-2:])
@@ -53,14 +58,14 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
     def test_longer_multimodal_prompt_with_topk(self):
         expected = [11, 14, 21, 22]
         rows = [[i, i+100] for i in range(6)]
-        ids, _ = score(FakeClient(rows, [11, 12, 13, 14, 21, 22]), expected)
+        ids, _, _ = score(FakeClient(rows, [11, 12, 13, 14, 21, 22]), expected)
         self.assertEqual(ids.tolist(), rows[-4:])
 
     def test_entropy_kl_preserves_sampled_logprob_outside_teacher_topk(self):
         expected = [11, 12, 13, 14, 21, 22]
         rows = [[101, 102], [111, 112], [121, 122], [131, 132]]
-        client = FakeClient(rows, [11, 14, 21, 22], [-.1, -.2, -4., 0.])
-        ids, logs = asyncio.run(manager(client, mode='entropy_kl').compute_teacher_logprobs_single(
+        client = FakeClient(rows, [11, 14, 21, 22], [-.1, -.2, -4., 0.], [.3, .4, .5, 0.])
+        ids, logs, entropy = asyncio.run(manager(client, mode='entropy_kl').compute_teacher_logprobs_single(
             expected, 2, multi_modal_data={'images': ['image']}))
         self.assertEqual(ids.shape, (6, 3))
         self.assertEqual(logs.shape, (6, 3))
@@ -69,11 +74,30 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
         self.assertAlmostEqual(logs[-3, -1].item(), -.2)
         self.assertAlmostEqual(logs[-2, -1].item(), -4.)
         self.assertEqual(logs[:2, -1].tolist(), [0., 0.])
+        torch.testing.assert_close(entropy, torch.tensor([0., 0., .3, .4, .5, 0.]))
+
+    def test_entropy_kl_requires_full_entropy(self):
+        with self.assertRaisesRegex(ValueError, 'requires prompt_entropies'):
+            asyncio.run(manager(FakeClient([[1, 2]] * 4), mode='entropy_kl').compute_teacher_logprobs_single(
+                [11, 14, 21, 22], 2))
 
     def test_entropy_kl_requires_sampled_logprob(self):
         with self.assertRaisesRegex(ValueError, 'requires the teacher logprob'):
-            asyncio.run(manager(FakeClient([[1, 2]] * 4), mode='entropy_kl').compute_teacher_logprobs_single(
-                [11, 14, 21, 22], 2))
+            asyncio.run(manager(FakeClient([[1, 2]] * 4, entropies=[.1] * 4), mode='entropy_kl')
+                        .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
+
+    def test_entropy_jsd_uses_entropy_without_sampled_logprob(self):
+        client = FakeClient([[1, 2]] * 4, entropies=[.2, .3, .4, 0.])
+        ids, logs, entropy = asyncio.run(manager(client, mode='entropy_jsd')
+                                         .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
+        self.assertEqual(ids.shape, (4, 2))
+        self.assertEqual(logs.shape, (4, 2))
+        torch.testing.assert_close(entropy, torch.tensor([.2, .3, .4, 0.]))
+
+    def test_entropy_jsd_requires_full_entropy(self):
+        with self.assertRaisesRegex(ValueError, 'requires prompt_entropies'):
+            asyncio.run(manager(FakeClient([[1, 2]] * 4), mode='entropy_jsd')
+                        .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
 
     def test_response_mismatch_fails(self):
         with self.assertRaisesRegex(ValueError, 'response-token suffix differs'):
@@ -95,7 +119,7 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
         client = FakeClient(rows)
         client.scored_ids = None
         with patch('verl.experimental.teacher_loop.teacher_manager._get_teacher_sampling_params', return_value={}):
-            ids, _ = score(client, expected)
+            ids, _, _ = score(client, expected)
         self.assertEqual(ids.shape, (6, 1))
 
 

@@ -567,3 +567,13 @@ def extract_prompt_logprobs(output: RequestOutput, num_prompt_logprobs: Optional
     result_dict["prompt_logprobs"] = prompt_logprobs_ls
     if num_prompt_logprobs > 0:
         result_dict["prompt_sampled_logprobs"] = sampled_logprobs_ls
+        # Custom teacher engines may return exact full-vocabulary prompt
+        # entropies alongside top-k logprobs. Align them to the same scored
+        # token rows (position i predicts token i+1), including the dummy tail.
+        prompt_entropies = getattr(output, "prompt_entropies", None)
+        if prompt_entropies is not None:
+            if len(prompt_entropies) == len(output.prompt_token_ids):
+                prompt_entropies = prompt_entropies[1:]
+            elif len(prompt_entropies) != len(output.prompt_token_ids) - 1:
+                raise ValueError("Teacher prompt_entropies must have one value per prompt token or scored token.")
+            result_dict["prompt_entropies"] = [float(value) for value in prompt_entropies] + [0.0]

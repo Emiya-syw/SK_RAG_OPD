@@ -2,7 +2,8 @@
 
 Forward KL follows EOPD: normalize the teacher's top-k probabilities, then
 score those tokens against the student's full-vocabulary probabilities. JSD
-and both entropy gates normalize each distribution over teacher top-k only.
+and entropy_jsd normalize each loss distribution over teacher top-k only. Both
+entropy gates use full-vocabulary entropies from the teacher and student.
 The entropy_kl reverse component instead uses the student-sampled token's
 teacher and student logprobs with a PPO surrogate in losses.py. No residual-mass
 bucket is used.
@@ -45,7 +46,9 @@ def _distribution(log_probs):
     return probabilities, probabilities.log(), mass
 
 
-def distribution_loss(student_log_probs, teacher_log_probs, config):
+def distribution_loss(
+    student_log_probs, teacher_log_probs, config, student_full_entropy=None, teacher_full_entropy=None
+):
     """Return differentiable token losses and detached, per-token diagnostics.
 
     alpha is the FKL coefficient for entropy_kl. beta is the TEACHER
@@ -60,6 +63,15 @@ def distribution_loss(student_log_probs, teacher_log_probs, config):
     t, log_t, teacher_mass = _distribution(teacher_log_probs.detach())
     hs = -(s * log_s).sum(-1).detach()
     ht = -(t * log_t).sum(-1).detach()
+    if mode in ("entropy_kl", "entropy_jsd"):
+        if student_full_entropy is None or teacher_full_entropy is None:
+            raise ValueError(f"{mode} requires full-vocabulary student and teacher entropies.")
+        if student_full_entropy.shape != hs.shape or teacher_full_entropy.shape != ht.shape:
+            raise ValueError("Full-vocabulary entropies must match the token dimensions of the top-k rows.")
+        hs = student_full_entropy.detach().to(hs.dtype)
+        ht = teacher_full_entropy.detach().to(ht.dtype)
+        if not torch.isfinite(hs).all() or not torch.isfinite(ht).all():
+            raise ValueError("Full-vocabulary entropies must be finite.")
     # EOPD Eq. (10): normalize only the teacher on its top-k support. Keep the
     # student's original full-softmax probabilities; normalizing them on the
     # same support would remove the penalty for mass outside the teacher top-k.
@@ -101,11 +113,17 @@ def distribution_loss(student_log_probs, teacher_log_probs, config):
     return result
 
 
-def compute_distribution_from_logits(student_logits, teacher_log_probs, teacher_ids, config):
+def compute_distribution_from_logits(
+    student_logits, teacher_log_probs, teacher_ids, config, teacher_full_entropy=None
+):
     """Gather student probabilities on the identical teacher support, in fp32."""
     vocab_size = student_logits.shape[-1]
     if teacher_ids.shape[-1] > vocab_size:
         raise ValueError("topk cannot exceed the student vocabulary size.")
+    need_full_entropy = config.loss_mode in ("entropy_kl", "entropy_jsd")
+    if need_full_entropy and teacher_full_entropy is None:
+        raise ValueError(f"{config.loss_mode} requires the teacher full-vocabulary entropy sequence.")
+    entropy_parts = []
     if config.use_chunked_topk:
         chunk_size = config.chunked_topk_chunk_size
         if chunk_size < 1:
@@ -115,11 +133,27 @@ def compute_distribution_from_logits(student_logits, teacher_log_probs, teacher_
         parts = []
         for start in range(0, logits.shape[0], chunk_size):
             chunk = logits[start : start + chunk_size].float()
-            parts.append(chunk.gather(-1, ids[start : start + chunk_size]) - chunk.logsumexp(-1, keepdim=True))
+            log_z = chunk.logsumexp(-1, keepdim=True)
+            parts.append(chunk.gather(-1, ids[start : start + chunk_size]) - log_z)
+            if need_full_entropy:
+                with torch.no_grad():
+                    probabilities = (chunk - log_z).softmax(-1)
+                    entropy_parts.append((log_z.squeeze(-1) - (probabilities * chunk).sum(-1)).detach())
         selected = torch.cat(parts).reshape(teacher_ids.shape) if parts else student_logits.float()[..., :0]
         if not parts:
             selected = selected.reshape(teacher_ids.shape)
     else:
         logits = student_logits.float()
-        selected = logits.gather(-1, teacher_ids) - logits.logsumexp(-1, keepdim=True)
-    return distribution_loss(selected, teacher_log_probs, config)
+        log_z = logits.logsumexp(-1, keepdim=True)
+        selected = logits.gather(-1, teacher_ids) - log_z
+        if need_full_entropy:
+            with torch.no_grad():
+                probabilities = (logits - log_z).softmax(-1)
+                entropy_parts.append((log_z.squeeze(-1) - (probabilities * logits).sum(-1)).detach())
+    student_full_entropy = None
+    if need_full_entropy:
+        student_full_entropy = (
+            torch.cat(entropy_parts).reshape(student_logits.shape[:-1])
+            if entropy_parts else student_logits.new_empty(student_logits.shape[:-1], dtype=torch.float32)
+        )
+    return distribution_loss(selected, teacher_log_probs, config, student_full_entropy, teacher_full_entropy)

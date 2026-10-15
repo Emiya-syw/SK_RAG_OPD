@@ -150,12 +150,16 @@ def compute_topk_loss(
         case _:
             raise NotImplementedError(f"Unsupported strategy: {config.strategy=}")
 
+    extra_kwargs = {}
+    if distillation_config.distillation_loss.loss_mode in ("entropy_kl", "entropy_jsd"):
+        extra_kwargs["teacher_entropy"] = data.get("teacher_entropy", None)
     outputs = distillation_loss_fn(
         student_logits=student_logits,
         teacher_topk_log_probs=data["teacher_logprobs"],
         teacher_topk_ids=data["teacher_ids"],
         config=distillation_config,
         data_format=data_format,
+        **extra_kwargs,
     )
 
     expected_shape = student_logits.shape[:2]

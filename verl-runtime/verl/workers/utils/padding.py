@@ -126,6 +126,11 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
         teacher_ids_nested = torch.nested.nested_tensor_from_jagged(teacher_ids_rmpad, offsets=cu_seqlens)
         data["teacher_logprobs"] = teacher_logprobs_nested
         data["teacher_ids"] = teacher_ids_nested
+        teacher_entropy = data.get("teacher_entropy", None)
+        if teacher_entropy is not None:
+            data["teacher_entropy"] = torch.nested.nested_tensor_from_jagged(
+                _remove_teacher_padding(teacher_entropy), offsets=cu_seqlens
+            )
 
     return data
 

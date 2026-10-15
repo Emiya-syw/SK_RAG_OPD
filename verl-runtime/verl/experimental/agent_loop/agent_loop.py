@@ -148,14 +148,17 @@ class AgentLoopOutput(BaseModel):
         # Mutating a default dict does not add the field to Pydantic's fields-set,
         # so model_dump(exclude_unset=True) can omit populated extra fields.
         extra_fields = output.setdefault("extra_fields", self.extra_fields.copy())
-        teacher_ids, teacher_logprobs = (
+        teacher_ids, teacher_logprobs, teacher_entropy = (
             extra_fields.pop("teacher_ids", None),
             extra_fields.pop("teacher_logprobs", None),
+            extra_fields.pop("teacher_entropy", None),
         )
         if teacher_ids is not None:
             output["teacher_ids"] = teacher_ids
         if teacher_logprobs is not None:
             output["teacher_logprobs"] = teacher_logprobs
+        if teacher_entropy is not None:
+            output["teacher_entropy"] = teacher_entropy
         return output
 
 
@@ -180,6 +183,8 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Padded log probabilities for the response tokens."""
     teacher_logprobs: Optional[torch.Tensor] = None
     """Padded log probabilities from teacher model for prompt/response tokens."""
+    teacher_entropy: Optional[torch.Tensor] = None
+    """Padded full-vocabulary entropy from teacher model for prompt/response tokens."""
     teacher_ids: Optional[torch.Tensor] = None
     """Padded token ids corresponding to the teacher log probabilities."""
     routed_experts: Optional[torch.Tensor] = None
@@ -893,17 +898,19 @@ class AgentLoopWorker:
             validate=validate,
             sample_kwargs=kwargs,
         )
-        teacher_ids, teacher_logprobs = (
+        teacher_ids, teacher_logprobs, teacher_entropy = (
             output.extra_fields.pop("teacher_ids", None),
             output.extra_fields.pop("teacher_logprobs", None),
+            output.extra_fields.pop("teacher_entropy", None),
         )
         if teacher_ids is not None and teacher_logprobs is not None:
             # TODO(wuxibin): remove padding and use tensordict.
             from verl.experimental.teacher_loop.teacher_manager import _pad_teacher_outputs
 
-            teacher_ids, teacher_logprobs = _pad_teacher_outputs(
+            teacher_ids, teacher_logprobs, teacher_entropy = _pad_teacher_outputs(
                 teacher_ids,
                 teacher_logprobs,
+                teacher_entropy,
                 prompt_width=prompt_output["input_ids"].shape[1],
                 response_width=response_output["input_ids"].shape[1],
                 prompt_length=len(output.prompt_ids),
@@ -924,6 +931,7 @@ class AgentLoopWorker:
             multi_modal_data=output.multi_modal_data,
             mm_processor_kwargs=output.mm_processor_kwargs,
             teacher_logprobs=teacher_logprobs,
+            teacher_entropy=teacher_entropy,
             teacher_ids=teacher_ids,
             reward_score=output.reward_score,
             num_turns=output.num_turns,
@@ -1136,12 +1144,14 @@ class AgentLoopWorker:
                 )
                 privileged_ids = self.tokenizer.encode(teacher_only_prompt, add_special_tokens=False)
 
-            teacher_ids, teacher_logprobs = await self.teacher_server_manager.compute_teacher_logprobs_single(
-                sequence_ids=prompt_ids + privileged_ids + response_ids,
-                response_length=len(response_ids),
-                multi_modal_data=output.multi_modal_data,
-                mm_processor_kwargs=output.mm_processor_kwargs,
-                routing_key=routing_key,
+            teacher_ids, teacher_logprobs, teacher_entropy = (
+                await self.teacher_server_manager.compute_teacher_logprobs_single(
+                    sequence_ids=prompt_ids + privileged_ids + response_ids,
+                    response_length=len(response_ids),
+                    multi_modal_data=output.multi_modal_data,
+                    mm_processor_kwargs=output.mm_processor_kwargs,
+                    routing_key=routing_key,
+                )
             )
             if privileged_ids:
                 # Teacher output rows are aligned to the unpadded sequence. Keep
@@ -1152,8 +1162,14 @@ class AgentLoopWorker:
                 teacher_logprobs = torch.cat(
                     (teacher_logprobs[:boundary], teacher_logprobs[boundary + len(privileged_ids) :]), dim=0
                 )
+                if teacher_entropy is not None:
+                    teacher_entropy = torch.cat(
+                        (teacher_entropy[:boundary], teacher_entropy[boundary + len(privileged_ids) :]), dim=0
+                    )
             output.extra_fields["teacher_ids"] = teacher_ids
             output.extra_fields["teacher_logprobs"] = teacher_logprobs
+            if teacher_entropy is not None:
+                output.extra_fields["teacher_entropy"] = teacher_entropy
 
     def _postprocess(
         self,
@@ -1183,6 +1199,8 @@ class AgentLoopWorker:
         if inputs[0].teacher_logprobs is not None and inputs[0].teacher_ids is not None:
             optional_outputs["teacher_logprobs"] = torch.cat([input.teacher_logprobs for input in inputs], dim=0)
             optional_outputs["teacher_ids"] = torch.cat([input.teacher_ids for input in inputs], dim=0)
+            if inputs[0].teacher_entropy is not None:
+                optional_outputs["teacher_entropy"] = torch.cat([input.teacher_entropy for input in inputs], dim=0)
         batch = TensorDict(
             {
                 "prompts": prompt_ids,  # [bsz, prompt_length]

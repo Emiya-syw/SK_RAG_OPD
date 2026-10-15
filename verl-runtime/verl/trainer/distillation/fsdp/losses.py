@@ -79,6 +79,7 @@ def compute_forward_kl_topk(
     teacher_topk_ids: torch.Tensor,
     config: DistillationConfig,
     data_format: str,
+    teacher_entropy: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Compute forward KL distillation loss using top-k log probabilities.
 
@@ -96,11 +97,17 @@ def compute_forward_kl_topk(
     assert teacher_topk_log_probs.is_nested and teacher_topk_ids.is_nested
     teacher_topk_log_probs = teacher_topk_log_probs.values().unsqueeze(0)  # (1, total_nnz, topk)
     teacher_topk_ids = teacher_topk_ids.values().unsqueeze(0)  # (1, total_nnz, topk)
+    if config.distillation_loss.loss_mode in ("entropy_kl", "entropy_jsd"):
+        if teacher_entropy is None or not teacher_entropy.is_nested:
+            raise ValueError(f"{config.distillation_loss.loss_mode} requires nested full-vocabulary teacher_entropy.")
+        teacher_entropy = teacher_entropy.values().unsqueeze(0)
 
     # 1. split across sp groups (bsz, seqlen, topk) => (bsz, seqlen/sp_size, topk)
     if get_ulysses_sequence_parallel_world_size() > 1:
         teacher_topk_log_probs = slice_input_tensor(teacher_topk_log_probs, dim=1)
         teacher_topk_ids = slice_input_tensor(teacher_topk_ids, dim=1)
+        if teacher_entropy is not None:
+            teacher_entropy = slice_input_tensor(teacher_entropy, dim=1)
     assert teacher_topk_log_probs.shape[:2] == teacher_topk_ids.shape[:2] == student_logits.shape[:2]
 
     # 2. compute token-wise KL divergence across sp groups
@@ -117,7 +124,8 @@ def compute_forward_kl_topk(
             teacher_topk_log_probs = teacher_topk_log_probs[..., :-1]
             teacher_topk_ids = teacher_topk_ids[..., :-1]
         return compute_distribution_from_logits(
-            student_logits, teacher_topk_log_probs, teacher_topk_ids, loss_config
+            student_logits, teacher_topk_log_probs, teacher_topk_ids, loss_config,
+            teacher_full_entropy=teacher_entropy,
         )
     use_chunked_topk = getattr(loss_config, "use_chunked_topk", False)
     if use_chunked_topk:

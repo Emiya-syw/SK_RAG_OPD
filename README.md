@@ -185,7 +185,7 @@ DISTILLATION_LOSS_MODE=forward_kl_topk DISTILLATION_TOPK=16 \
 | `entropy_kl` | `α` 乘上述前向 KL 近似；反向项以 `(1−α)` 加权采样 token 的师生 logprob 差，并通过 PPO 式策略梯度更新 |
 | `entropy_jsd` | 同上广义 JSD 公式，但逐 token 设置 `β=1−α` |
 
-这里 `M=βT+(1−β)S`，`α=ε+(1−2ε) sigmoid((H(T)−H(S))/τ)`。教师熵更高时，`entropy_kl` 增加前向权重；`entropy_jsd` 减小教师混合系数 β，趋向前向 KL 的方向（并不等价于直接混合两个 KL）。教师分布与熵门控权重停止梯度，学生在 M 中的贡献保留梯度。熵采用自然对数，单位为 nat。
+这里 `M=βT+(1−β)S`，`α=ε+(1−2ε) sigmoid((H(T)−H(S))/τ)`。`entropy_kl` 和 `entropy_jsd` 都使用师生全词表熵计算门控；教师熵更高时，前者增加前向权重，后者减小教师混合系数 β。教师分布与熵门控权重停止梯度，学生在 M 中的贡献保留梯度。熵采用自然对数，单位为 nat。
 
 ```bash
 # 将模式替换为 forward_kl / jsd / entropy_kl / entropy_jsd
@@ -199,7 +199,7 @@ DISTILLATION_LOSS_MODE=jsd JSD_BETA=0.5 USE_POLICY_GRADIENT=false \
   bash scripts/run_opd.sh data/verl/train.parquet outputs/opd_jsd
 ```
 
-`forward_kl` 和 `entropy_kl` 的前向项按 EOPD 论文的 top-k 公式计算，默认 `DISTILLATION_TOPK=16`：教师概率仅在 top-k 内重归一化，学生使用完整 softmax 对这些 token 的原始概率，因此仍惩罚学生分配给 top-k 外的概率。`entropy_kl` 的反向项使用学生实际采样词在师生模型下的 logprob，以 `(1−α)(log T−log S_old)` 为 PPO 式优势。即使采样词不在教师 top-16 中，也会单独取得其教师概率；独立的 `k3` 模式及其公式保持原样。`jsd`、`entropy_jsd` 和熵门控只使用教师 top-k 内的 token，并分别在这些 token 上归一化师生概率，**不使用尾部桶**；JSD 忽略 top-k 外的概率，日志里的熵是 top-k 条件熵，不是完整词表熵。`student_mass` 和 `teacher_mass` 则记录归一化前各自在 top-k 内的原始概率质量。只有 top-k 覆盖整个词表时，前向项才是精确的完整词表 KL。这也不同于旧 `forward_kl_topk` 的未归一化截断求和。日志包含 `distillation/student_entropy`、`teacher_entropy`，以及 `forward_weight` 或 `jsd_beta`，只统计 response mask 内位置。师生须使用一致的词表及 token ID。
+`forward_kl` 和 `entropy_kl` 的前向项按 EOPD 论文的 top-k 公式计算，默认 `DISTILLATION_TOPK=16`：教师概率仅在 top-k 内重归一化，学生使用完整 softmax 对这些 token 的原始概率，因此仍惩罚学生分配给 top-k 外的概率。`entropy_kl` 和 `entropy_jsd` 的门控熵均取师生各自完整词表的分布熵；学生直接从完整 logits 计算，教师服务须同时返回 top-k logprob 和 `prompt_entropies` 序列。`entropy_kl` 还需要采样 token 的教师 logprob。熵序列可以与 prompt token 等长（首元素无预测上下文）或只包含被评分的 token，服务桥接层会将它对齐为逐位置熵并在末尾补一个占位值。缺少教师全词表熵时会报错，不会回退到 top-k 条件熵。`entropy_kl` 的反向项使用学生实际采样词在师生模型下的 logprob，以 `(1−α)(log T−log S_old)` 为 PPO 式优势。即使采样词不在教师 top-16 中，也会单独取得其教师概率；独立的 `k3` 模式及其公式保持原样。`jsd` 和 `entropy_jsd` 的损失仍只使用教师 top-k 内的 token，并分别在这些 token 上归一化师生概率，**不使用尾部桶**；JSD 损失忽略 top-k 外的概率，但 `entropy_jsd` 的门控熵包含全词表。`student_mass` 和 `teacher_mass` 则记录归一化前各自在 top-k 内的原始概率质量。只有 top-k 覆盖整个词表时，前向项才是精确的完整词表 KL。这也不同于旧 `forward_kl_topk` 的未归一化截断求和。日志包含 `distillation/student_entropy`、`teacher_entropy`，以及 `forward_weight` 或 `jsd_beta`，只统计 response mask 内位置。师生须使用一致的词表及 token ID。
 
 默认的 `k3` 反向 KL 路径只使用 rollout 实际采样 token 的师生 logprob，是单样本估计，并未请求完整词表概率。四种分布损失若要改成精确的完整词表版本，需要 teacher 返回每个回答位置的全量 logits；当前 vLLM teacher 接口只提供 prompt logprob 的 top-k 输出。
 

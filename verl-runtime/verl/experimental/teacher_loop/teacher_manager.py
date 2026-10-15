@@ -60,19 +60,24 @@ def _get_teacher_sampling_params(
 def _pad_teacher_outputs(
     teacher_ids: torch.Tensor,
     teacher_logprobs: torch.Tensor,
+    teacher_entropy: Optional[torch.Tensor],
     prompt_width: int,
     response_width: int,
     prompt_length: int,
     response_length: int,
     pad_token_id: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     # TODO(wuxibin): remove padding and use tensordict.
     left_pad_size = prompt_width - prompt_length
     right_pad_size = response_width - response_length
     padding = (0, 0, left_pad_size, right_pad_size)
+    padded_entropy = None
+    if teacher_entropy is not None:
+        padded_entropy = F.pad(teacher_entropy, (left_pad_size, right_pad_size), value=0.0).unsqueeze(0)
     return (
         F.pad(teacher_ids, padding, value=pad_token_id).unsqueeze(0),
         F.pad(teacher_logprobs, padding, value=0.0).unsqueeze(0),
+        padded_entropy,
     )
 
 
@@ -120,7 +125,7 @@ class AsyncTeacherLLMServerManager:
         multi_modal_data: Optional[dict[str, Any]] = None,
         mm_processor_kwargs: Optional[dict[str, Any]] = None,
         routing_key: Optional[str] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Compute teacher log probabilities for a single unpadded sequence."""
         multi_modal_data = multi_modal_data or {}
         teacher_key = self._resolve_teacher_key(routing_key)
@@ -140,7 +145,16 @@ class AsyncTeacherLLMServerManager:
         teacher_ids = torch.tensor(teacher_output.extra_fields["prompt_ids"], dtype=torch.int32)
         teacher_logprobs = torch.tensor(teacher_output.extra_fields["prompt_logprobs"])
         sampled_logprobs = None
-        if getattr(self.distillation_loss_config, "loss_mode", None) == "entropy_kl":
+        teacher_entropy = None
+        loss_mode = getattr(self.distillation_loss_config, "loss_mode", None)
+        if loss_mode in ("entropy_kl", "entropy_jsd"):
+            entropies = teacher_output.extra_fields.get("prompt_entropies")
+            if entropies is None:
+                raise ValueError(f"{loss_mode} requires prompt_entropies: full-vocabulary teacher entropy per token.")
+            teacher_entropy = torch.as_tensor(entropies, dtype=torch.float32)
+            if teacher_entropy.shape != (teacher_ids.shape[0],) or not torch.isfinite(teacher_entropy).all():
+                raise ValueError("Teacher prompt_entropies must be a finite value for every top-k row.")
+        if loss_mode == "entropy_kl":
             sampled = teacher_output.extra_fields.get("prompt_sampled_logprobs")
             if sampled is None:
                 raise ValueError("entropy_kl requires the teacher logprob of each sampled token.")
@@ -207,15 +221,19 @@ class AsyncTeacherLLMServerManager:
                 teacher_logprobs = teacher_logprobs[-expected_length:]
                 if sampled_logprobs is not None:
                     sampled_logprobs = sampled_logprobs[-expected_length:]
+                if teacher_entropy is not None:
+                    teacher_entropy = teacher_entropy[-expected_length:]
             else:
                 left_padding = expected_length - returned_length
                 teacher_ids = F.pad(teacher_ids, (0, 0, left_padding, 0), value=0)
                 teacher_logprobs = F.pad(teacher_logprobs, (0, 0, left_padding, 0), value=0.0)
                 if sampled_logprobs is not None:
                     sampled_logprobs = F.pad(sampled_logprobs, (left_padding, 0), value=0.0)
+                if teacher_entropy is not None:
+                    teacher_entropy = F.pad(teacher_entropy, (left_padding, 0), value=0.0)
         if sampled_logprobs is not None:
             # Keep teacher top-k in the first K columns. The last logprob is
             # the scored student token even when it falls outside top-k.
             teacher_ids = F.pad(teacher_ids, (0, 1), value=0)
             teacher_logprobs = torch.cat((teacher_logprobs, sampled_logprobs.unsqueeze(-1)), dim=-1)
-        return teacher_ids, teacher_logprobs
+        return teacher_ids, teacher_logprobs, teacher_entropy
