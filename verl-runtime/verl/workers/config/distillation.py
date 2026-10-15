@@ -181,7 +181,7 @@ class DistillationTeacherModelConfig(BaseConfig):
         if self.num_replicas is None:
             raise ValueError("num_replicas must be specified for distillation teacher model config.")
 
-    def validate_and_prepare_for_distillation(self, use_topk: bool, topk: Optional[int]) -> None:
+    def validate_and_prepare_for_distillation(self, use_topk: bool, topk: Optional[int], loss_mode: str = "") -> None:
         # Prompt + Response from student are fed into teacher as context
         max_model_len = self.inference.max_model_len
         student_prompt_length = self.inference.prompt_length
@@ -195,9 +195,13 @@ class DistillationTeacherModelConfig(BaseConfig):
             )
         self.inference.prompt_length = self.inference.prompt_length + self.inference.response_length
         self.inference.response_length = 1
-        self._validate_topk_logprobs(use_topk=use_topk, topk=topk)
+        self._validate_topk_logprobs(
+            use_topk=use_topk, topk=topk, requires_full_entropy=loss_mode in ("entropy_kl", "entropy_jsd")
+        )
 
-    def _validate_topk_logprobs(self, use_topk: bool, topk: Optional[int]) -> None:
+    def _validate_topk_logprobs(
+        self, use_topk: bool, topk: Optional[int], requires_full_entropy: bool = False
+    ) -> None:
         if not use_topk:
             return
         if topk is None:
@@ -209,6 +213,15 @@ class DistillationTeacherModelConfig(BaseConfig):
             case "vllm":
                 vllm_engine_kwargs = dict(engine_kwargs.get("vllm", {}))
                 max_logprobs = vllm_engine_kwargs.get("max_logprobs")
+                if requires_full_entropy:
+                    if max_logprobs not in (None, -1):
+                        raise ValueError(
+                            "Entropy-gated losses require vLLM max_logprobs=-1 to return full-vocabulary "
+                            "prompt logprobs."
+                        )
+                    vllm_engine_kwargs["max_logprobs"] = -1
+                    engine_kwargs["vllm"] = vllm_engine_kwargs
+                    return
                 if max_logprobs is None:
                     vllm_engine_kwargs["max_logprobs"] = topk
                     max_logprobs = topk
@@ -317,6 +330,7 @@ class DistillationConfig(BaseConfig):
             teacher_model.validate_and_prepare_for_distillation(
                 use_topk=self.distillation_loss.loss_settings.use_topk,
                 topk=self.distillation_loss.topk,
+                loss_mode=self.distillation_loss.loss_mode,
             )
             teacher_world_size_sum += teacher_model.world_size
         total_pool_size = self.n_gpus_per_node * self.nnodes

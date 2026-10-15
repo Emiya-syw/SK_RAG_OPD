@@ -159,6 +159,7 @@ ROLLOUT_ENABLE_PREFIX_CACHING="${ROLLOUT_ENABLE_PREFIX_CACHING:-true}"
 # 是否启用蒸馏。当前脚本必须为 true；false 会退化为无有效 reward 的训练。
 DISTILLATION_ENABLED="${DISTILLATION_ENABLED:-true}"
 # loss 类型：k3、rollout_mixture_k3、forward_kl_topk（旧版）、forward_kl、jsd、entropy_kl、entropy_jsd、k1（仅 PG）等。
+# entropy_kl/entropy_jsd 在标准 vLLM 上请求全词表 prompt logprobs 来计算精确熵；长序列显著增加教师显存和计算开销。
 DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
 # teacher top-k 数；默认与 EOPD 的前向 KL 实验保持一致。
 DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}"
