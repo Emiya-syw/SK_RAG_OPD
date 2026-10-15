@@ -16,6 +16,7 @@ class FakeClient:
         self.entropies = entropies
 
     async def generate(self, **kwargs):
+        self.last_request = kwargs
         width = len(self.rows[0]) if self.rows else 1
         extra_fields = {
             'prompt_ids': self.rows,
@@ -64,7 +65,7 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
     def test_entropy_kl_preserves_sampled_logprob_outside_teacher_topk(self):
         expected = [11, 12, 13, 14, 21, 22]
         rows = [[101, 102], [111, 112], [121, 122], [131, 132]]
-        client = FakeClient(rows, [11, 14, 21, 22], [-.1, -.2, -4., 0.], [.3, .4, .5, 0.])
+        client = FakeClient(rows, [11, 14, 21, 22], [-.1, -.2, -4., 0.])
         ids, logs, entropy = asyncio.run(manager(client, mode='entropy_kl').compute_teacher_logprobs_single(
             expected, 2, multi_modal_data={'images': ['image']}))
         self.assertEqual(ids.shape, (6, 3))
@@ -74,30 +75,30 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
         self.assertAlmostEqual(logs[-3, -1].item(), -.2)
         self.assertAlmostEqual(logs[-2, -1].item(), -4.)
         self.assertEqual(logs[:2, -1].tolist(), [0., 0.])
-        torch.testing.assert_close(entropy, torch.tensor([0., 0., .3, .4, .5, 0.]))
+        self.assertIsNone(entropy)
 
-    def test_entropy_kl_requires_full_entropy(self):
-        with self.assertRaisesRegex(ValueError, 'requires prompt_entropies'):
-            asyncio.run(manager(FakeClient([[1, 2]] * 4), mode='entropy_kl').compute_teacher_logprobs_single(
-                [11, 14, 21, 22], 2))
+    def test_entropy_kl_uses_topk_without_full_entropy(self):
+        client = FakeClient([[1, 2]] * 4, sampled_logprobs=[-.1, -.2, -.3, 0.])
+        ids, logs, entropy = asyncio.run(manager(client, mode='entropy_kl').compute_teacher_logprobs_single(
+            [11, 14, 21, 22], 2))
+        self.assertEqual(ids.shape, (4, 3))
+        self.assertEqual(logs.shape, (4, 3))
+        self.assertIsNone(entropy)
+        self.assertEqual(client.last_request['sampling_params']['prompt_logprobs'], 2)
+        self.assertNotIn('entropy_topk', client.last_request['sampling_params'])
 
     def test_entropy_kl_requires_sampled_logprob(self):
         with self.assertRaisesRegex(ValueError, 'requires the teacher logprob'):
             asyncio.run(manager(FakeClient([[1, 2]] * 4, entropies=[.1] * 4), mode='entropy_kl')
                         .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
 
-    def test_entropy_jsd_uses_entropy_without_sampled_logprob(self):
-        client = FakeClient([[1, 2]] * 4, entropies=[.2, .3, .4, 0.])
+    def test_entropy_jsd_uses_topk_without_sampled_logprob(self):
+        client = FakeClient([[1, 2]] * 4)
         ids, logs, entropy = asyncio.run(manager(client, mode='entropy_jsd')
                                          .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
         self.assertEqual(ids.shape, (4, 2))
         self.assertEqual(logs.shape, (4, 2))
-        torch.testing.assert_close(entropy, torch.tensor([.2, .3, .4, 0.]))
-
-    def test_entropy_jsd_requires_full_entropy(self):
-        with self.assertRaisesRegex(ValueError, 'requires prompt_entropies'):
-            asyncio.run(manager(FakeClient([[1, 2]] * 4), mode='entropy_jsd')
-                        .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
+        self.assertIsNone(entropy)
 
     def test_response_mismatch_fails(self):
         with self.assertRaisesRegex(ValueError, 'response-token suffix differs'):

@@ -49,22 +49,12 @@ def _get_teacher_sampling_params(
             teacher_model_config.inference.temperature,
         )
     num_logprobs = distillation_loss_config.topk if distillation_loss_config.loss_settings.use_topk else 0
-    params = {
+    return {
         "max_tokens": 1,
         "temperature": 1.0,
         "prompt_logprobs": num_logprobs,
         "detokenize": False,
     }
-    # Stock vLLM does not put prompt_entropies on RequestOutput. Request all
-    # vocabulary logprobs for entropy-gated losses, then reduce them to entropy
-    # and the requested top-k inside the teacher server before the Ray return.
-    if (
-        distillation_loss_config.loss_mode in ("entropy_kl", "entropy_jsd")
-        and getattr(teacher_model_config.inference, "name", None) == "vllm"
-    ):
-        params["prompt_logprobs"] = -1
-        params["entropy_topk"] = num_logprobs
-    return params
 
 
 def _pad_teacher_outputs(
@@ -157,13 +147,9 @@ class AsyncTeacherLLMServerManager:
         sampled_logprobs = None
         teacher_entropy = None
         loss_mode = getattr(self.distillation_loss_config, "loss_mode", None)
-        if loss_mode in ("entropy_kl", "entropy_jsd"):
-            entropies = teacher_output.extra_fields.get("prompt_entropies")
-            if entropies is None:
-                raise ValueError(f"{loss_mode} requires prompt_entropies: full-vocabulary teacher entropy per token.")
-            teacher_entropy = torch.as_tensor(entropies, dtype=torch.float32)
-            if teacher_entropy.shape != (teacher_ids.shape[0],) or not torch.isfinite(teacher_entropy).all():
-                raise ValueError("Teacher prompt_entropies must be a finite value for every top-k row.")
+        # Entropy-gated losses estimate entropy from top-k logprobs and the
+        # remaining probability mass in the actor loss. No full-vocab teacher
+        # entropy transfer is needed.
         if loss_mode == "entropy_kl":
             sampled = teacher_output.extra_fields.get("prompt_sampled_logprobs")
             if sampled is None:

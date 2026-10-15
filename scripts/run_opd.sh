@@ -159,15 +159,20 @@ ROLLOUT_ENABLE_PREFIX_CACHING="${ROLLOUT_ENABLE_PREFIX_CACHING:-true}"
 # 是否启用蒸馏。当前脚本必须为 true；false 会退化为无有效 reward 的训练。
 DISTILLATION_ENABLED="${DISTILLATION_ENABLED:-true}"
 # loss 类型：k3、rollout_mixture_k3、forward_kl_topk（旧版）、forward_kl、jsd、entropy_kl、entropy_jsd、k1（仅 PG）等。
-# entropy_kl/entropy_jsd 在标准 vLLM 上请求全词表 prompt logprobs 来计算精确熵；长序列显著增加教师显存和计算开销。
 DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
-# teacher top-k 数；默认与 EOPD 的前向 KL 实验保持一致。
-DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}"
+# teacher top-k 数；熵门控默认 32，其余损失默认 16。可用环境变量覆盖。
+case "${DISTILLATION_LOSS_MODE}" in
+  entropy_kl|entropy_jsd) DISTILLATION_TOPK="${DISTILLATION_TOPK:-32}" ;;
+  *) DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}" ;;
+esac
 # jsd 默认 0.5 为标准对称 JSD；beta 是混合分布中教师的系数。
 JSD_BETA="${JSD_BETA:-0.5}"
-# 熵差软门控：alpha=eps+(1-2eps)*sigmoid((H_teacher-H_student)/temperature)。
+# 熵差软门控先计算 alpha_raw=eps+(1-2eps)*sigmoid((H_teacher-H_student)/temperature)。
+# H 使用师生各自 top-k 原始概率和一个尾部桶近似，不请求全词表教师 logprobs。
 ENTROPY_GATE_TEMPERATURE="${ENTROPY_GATE_TEMPERATURE:-1.0}"
 ENTROPY_GATE_EPSILON="${ENTROPY_GATE_EPSILON:-0.05}"
+# 任一模型的 top-k 尾部质量达到此值时，熵门控系数退回 0.5。
+ENTROPY_GATE_TAIL_CUTOFF="${ENTROPY_GATE_TAIL_CUTOFF:-0.2}"
 # 仅 entropy_jsd：可选除以 beta*(1-beta)，默认不额外缩放。
 ENTROPY_JSD_NORMALIZE="${ENTROPY_JSD_NORMALIZE:-false}"
 # 蒸馏 loss 权重。非负浮点数；与 task reward 联用时控制蒸馏占比。
@@ -335,7 +340,7 @@ render_training_config() {
     ROLLOUT_MAX_NUM_SEQS ROLLOUT_ENABLE_CHUNKED_PREFILL ROLLOUT_ENABLE_PREFIX_CACHING
   render_config_group "teacher_and_distillation" \
     DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK \
-    JSD_BETA ENTROPY_GATE_TEMPERATURE ENTROPY_GATE_EPSILON ENTROPY_JSD_NORMALIZE \
+    JSD_BETA ENTROPY_GATE_TEMPERATURE ENTROPY_GATE_EPSILON ENTROPY_GATE_TAIL_CUTOFF ENTROPY_JSD_NORMALIZE \
     DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT \
     ROLLOUT_MIXTURE_ENABLED ROLLOUT_MIXTURE_OFF_POLICY_RATIO ROLLOUT_MIXTURE_FIELD \
     LOSS_MAX_CLAMP \
@@ -582,6 +587,7 @@ train_status=0
   "distillation.distillation_loss.jsd_beta=${JSD_BETA}" \
   "distillation.distillation_loss.entropy_gate_temperature=${ENTROPY_GATE_TEMPERATURE}" \
   "distillation.distillation_loss.entropy_gate_epsilon=${ENTROPY_GATE_EPSILON}" \
+  "distillation.distillation_loss.entropy_gate_tail_cutoff=${ENTROPY_GATE_TAIL_CUTOFF}" \
   "distillation.distillation_loss.entropy_jsd_normalize=${ENTROPY_JSD_NORMALIZE}" \
   "distillation.distillation_loss.distillation_loss_coef=${DISTILLATION_LOSS_COEF}" \
   "distillation.distillation_loss.use_task_rewards=${USE_TASK_REWARDS}" \

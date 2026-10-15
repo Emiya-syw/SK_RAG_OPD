@@ -150,16 +150,12 @@ def compute_topk_loss(
         case _:
             raise NotImplementedError(f"Unsupported strategy: {config.strategy=}")
 
-    extra_kwargs = {}
-    if distillation_config.distillation_loss.loss_mode in ("entropy_kl", "entropy_jsd"):
-        extra_kwargs["teacher_entropy"] = data.get("teacher_entropy", None)
     outputs = distillation_loss_fn(
         student_logits=student_logits,
         teacher_topk_log_probs=data["teacher_logprobs"],
         teacher_topk_ids=data["teacher_ids"],
         config=distillation_config,
         data_format=data_format,
-        **extra_kwargs,
     )
 
     expected_shape = student_logits.shape[:2]
@@ -417,7 +413,10 @@ def compute_forward_kl_topk(
         "distillation/teacher_mass_max": Metric(AggregationType.MAX, teacher_mass.max()),
         **overlap_metrics,
     }
-    for name in ("student_entropy", "teacher_entropy", "forward_weight", "jsd_beta"):
+    for name in (
+        "student_entropy", "teacher_entropy", "forward_weight", "jsd_beta",
+        "student_tail_mass", "teacher_tail_mass", "entropy_gate_confidence",
+    ):
         if name in model_output:
             values = no_padding_2_padding(model_output[name], data)
             distillation_metrics[f"distillation/{name}"] = values[response_mask_bool].detach().mean().item()

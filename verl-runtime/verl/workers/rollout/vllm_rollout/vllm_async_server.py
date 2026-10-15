@@ -617,7 +617,6 @@ class vLLMHttpServer:
         assert 1 <= max_tokens <= max_possible_tokens, (
             f"max_tokens {max_tokens} not in valid range [1, {max_possible_tokens}]"
         )
-        entropy_topk = sampling_params.pop("entropy_topk", None)
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params.setdefault("ignore_eos", self.config.get("ignore_eos", False))
@@ -708,7 +707,6 @@ class vLLMHttpServer:
             output=final_res,
             num_prompt_logprobs=sampling_params.prompt_logprobs,
             result_dict=extra_fields,
-            entropy_topk=entropy_topk,
         )
         if sampling_params.prompt_logprobs is not None:
             # Top-k columns do not necessarily include the scored response token.

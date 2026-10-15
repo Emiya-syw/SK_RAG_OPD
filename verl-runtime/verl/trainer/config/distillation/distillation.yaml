@@ -31,6 +31,8 @@ distillation_loss:
   jsd_beta: 0.5
   entropy_gate_temperature: 1.0
   entropy_gate_epsilon: 0.05
+  # Gate confidence falls linearly to zero when either model's top-k tail mass reaches this value.
+  entropy_gate_tail_cutoff: 0.2
   # Adaptive JSD only: divide by beta*(1-beta). False preserves standard scale.
   entropy_jsd_normalize: false
 

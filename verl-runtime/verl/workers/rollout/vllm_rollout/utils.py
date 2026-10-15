@@ -31,7 +31,6 @@ from verl.utils.device import get_device_name, is_npu_available
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, resolve_weight_name
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches, is_fp8_model, load_quanted_weights
-from verl.workers.rollout.vllm_rollout.prompt_entropy import compact_full_prompt_logprobs
 from verl.workers.rollout.vllm_rollout.weight_update_utils import apply_buffer_updates, split_buffer_updates
 
 logger = logging.getLogger(__file__)
@@ -525,22 +524,12 @@ def build_mtp_speculative_config(
     }
 
 
-def extract_prompt_logprobs(
-    output: RequestOutput,
-    num_prompt_logprobs: Optional[int],
-    result_dict: dict[str, list],
-    entropy_topk: Optional[int] = None,
-):
+def extract_prompt_logprobs(output: RequestOutput, num_prompt_logprobs: Optional[int], result_dict: dict[str, list]):
     """Extract prompt log probabilities from generation output."""
     if num_prompt_logprobs is None:
         return
 
-    if num_prompt_logprobs == -1 and (entropy_topk is None or entropy_topk < 1):
-        raise ValueError("Full-vocabulary prompt_logprobs require a positive entropy_topk for compact return.")
-    if entropy_topk is not None and num_prompt_logprobs != -1:
-        raise ValueError("entropy_topk requires prompt_logprobs=-1.")
-    output_topk = entropy_topk if entropy_topk is not None else num_prompt_logprobs
-    prompt_logprobs_ls, prompt_ids_ls, sampled_logprobs_ls, entropy_ls = [], [], [], []
+    prompt_logprobs_ls, prompt_ids_ls, sampled_logprobs_ls = [], [], []
     # NOTE: logprob of first prompt token is None.
     for position, logprobs_dict in enumerate(output.prompt_logprobs[1:], start=1):
         if num_prompt_logprobs == 0:
@@ -550,26 +539,17 @@ def extract_prompt_logprobs(
             prompt_ids_ls.append([int(token_id_str)])
         else:
             sampled_id = output.prompt_token_ids[position]
-            if entropy_topk is not None:
-                ids, logprobs, sampled_lp, entropy = compact_full_prompt_logprobs(
-                    logprobs_dict, sampled_id, entropy_topk
-                )
-                prompt_ids_ls.append(ids)
-                prompt_logprobs_ls.append(logprobs)
-                sampled_logprobs_ls.append(sampled_lp)
-                entropy_ls.append(entropy)
-                continue
             sampled_entry = logprobs_dict.get(sampled_id, logprobs_dict.get(str(sampled_id)))
             if sampled_entry is None:
                 raise ValueError(f"Prompt logprobs missing scored token {sampled_id} at position {position}.")
             sampled_logprobs_ls.append(sampled_entry.logprob)
-            prompt_ids = [None] * output_topk
-            prompt_logprobs = [None] * output_topk
+            prompt_ids = [None] * num_prompt_logprobs
+            prompt_logprobs = [None] * num_prompt_logprobs
             # We get either top-k logprobs or top-k plus the sampled logprob (if sampled token is not in top-k)
-            assert len(logprobs_dict) in [output_topk, output_topk + 1], len(logprobs_dict)
+            assert len(logprobs_dict) in [num_prompt_logprobs, num_prompt_logprobs + 1], len(logprobs_dict)
             for token_id_str, token_logprob in logprobs_dict.items():
                 rank = token_logprob.rank
-                if rank is None or rank > output_topk:
+                if rank > num_prompt_logprobs:
                     continue  # the sampled token is not in the top-k
                 logprob = token_logprob.logprob
                 prompt_ids[rank - 1] = int(token_id_str)
@@ -578,19 +558,19 @@ def extract_prompt_logprobs(
             prompt_ids_ls.append(prompt_ids)
 
     # NOTE: pad a dummy prompt logprob for last prompt token.
-    prompt_logprobs_ls.append([0.0] * max(output_topk, 1))
-    prompt_ids_ls.append([0] * max(output_topk, 1))
-    if output_topk > 0:
+    prompt_logprobs_ls.append([0.0] * max(num_prompt_logprobs, 1))
+    prompt_ids_ls.append([0] * max(num_prompt_logprobs, 1))
+    if num_prompt_logprobs > 0:
         sampled_logprobs_ls.append(0.0)
 
     result_dict["prompt_ids"] = prompt_ids_ls
     result_dict["prompt_logprobs"] = prompt_logprobs_ls
-    if output_topk > 0:
+    if num_prompt_logprobs > 0:
         result_dict["prompt_sampled_logprobs"] = sampled_logprobs_ls
         # Custom teacher engines may return exact full-vocabulary prompt
         # entropies alongside top-k logprobs. Align them to the same scored
         # token rows (position i predicts token i+1), including the dummy tail.
-        prompt_entropies = entropy_ls if entropy_topk is not None else getattr(output, "prompt_entropies", None)
+        prompt_entropies = getattr(output, "prompt_entropies", None)
         if prompt_entropies is not None:
             if len(prompt_entropies) == len(output.prompt_token_ids):
                 prompt_entropies = prompt_entropies[1:]
