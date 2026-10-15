@@ -11,7 +11,8 @@ from verl.workers.config.distillation import DistillationLossConfig
 
 
 def config(mode, **kwargs):
-    return DistillationLossConfig(loss_mode=mode, use_policy_gradient=False, **kwargs)
+    return DistillationLossConfig(loss_mode=mode, use_policy_gradient=False,
+                                  entropy_topk=kwargs.pop('entropy_topk', 3), **kwargs)
 
 
 def kl(p, q):
@@ -29,6 +30,23 @@ def bucket_entropy(logprobs):
 
 
 class DistributionLossTests(unittest.TestCase):
+    def test_loss_and_entropy_use_independent_topk(self):
+        student = torch.tensor([[[2., 1., 0., -1., -2.]]], requires_grad=True)
+        teacher = torch.tensor([[[1., .5, 0., -.5, -2.]]]).log_softmax(-1)
+        student_logits = student.detach().log_softmax(-1)
+        for mode in ('entropy_kl', 'entropy_jsd'):
+            with self.subTest(mode=mode):
+                c = config(mode, topk=2, entropy_topk=4)
+                out = compute_distribution_from_logits(
+                    student, teacher[..., :2], torch.tensor([[[0, 1]]]), c,
+                    teacher_gate_log_probs=teacher[..., :4])
+                expected_teacher_entropy, _ = bucket_entropy(teacher[..., :4])
+                expected_student_entropy, _ = bucket_entropy(student_logits.topk(4).values)
+                torch.testing.assert_close(out['teacher_entropy'], expected_teacher_entropy)
+                torch.testing.assert_close(out['student_entropy'], expected_student_entropy)
+                torch.testing.assert_close(out['teacher_mass'], teacher[..., :2].exp().sum(-1))
+                self.assertTrue(torch.isfinite(out['distillation_losses']).all())
+
     def test_entropy_kl_gate_uses_own_topk_and_tail_bucket(self):
         logits = torch.tensor([[[2., 1., 0., -1.]]], requires_grad=True)
         teacher_logits = torch.tensor([[[1., 0., -.5, -2.]]])
@@ -194,6 +212,9 @@ class DistributionLossTests(unittest.TestCase):
                            {'entropy_gate_tail_cutoff': 0.}):
                 with self.assertRaises(ValueError):
                     config(mode, **kwargs)
+            if mode in ('entropy_kl', 'entropy_jsd'):
+                with self.assertRaises(ValueError):
+                    config(mode, entropy_topk=0)
             with self.assertRaises(ValueError):
                 DistillationLossConfig(loss_mode=mode, use_policy_gradient=True)
         self.assertEqual(DistillationLossConfig().loss_mode, 'k3')
@@ -223,6 +244,29 @@ class DistributionLossTests(unittest.TestCase):
             expected = compute_distribution_from_logits(x, logs, ids, c)
             torch.testing.assert_close(out['distillation_losses'], expected['distillation_losses'])
             self.assertTrue(torch.isfinite(torch.autograd.grad(out['distillation_losses'].sum(), x)[0]).all())
+
+    def test_fsdp_nested_dispatch_splits_loss_and_entropy_topk(self):
+        from verl.trainer.distillation.losses import compute_topk_loss
+        x = torch.tensor([[[2., 1., 0., -1., -2.]]], requires_grad=True)
+        teacher = torch.tensor([[[1., .5, 0., -.5, -2.]]]).log_softmax(-1)
+        logs, ids = teacher.topk(4)
+        for mode in ('entropy_kl', 'entropy_jsd'):
+            with self.subTest(mode=mode):
+                c = config(mode, topk=2, entropy_topk=4)
+                row_logs, row_ids = logs[0], ids[0]
+                if mode == 'entropy_kl':
+                    row_logs = torch.cat((row_logs, torch.tensor([[-1.]])), dim=-1)
+                    row_ids = torch.cat((row_ids, torch.zeros(1, 1, dtype=row_ids.dtype)), dim=-1)
+                data = {
+                    'teacher_logprobs': torch.nested.nested_tensor([row_logs], layout=torch.jagged),
+                    'teacher_ids': torch.nested.nested_tensor([row_ids], layout=torch.jagged),
+                }
+                out = compute_topk_loss(SimpleNamespace(strategy='fsdp'),
+                                        SimpleNamespace(distillation_loss=c), data, x, 'thd')
+                expected = compute_distribution_from_logits(
+                    x, logs[..., :2], ids[..., :2], c, teacher_gate_log_probs=logs)
+                torch.testing.assert_close(out['distillation_losses'], expected['distillation_losses'])
+                torch.testing.assert_close(out['teacher_entropy'], expected['teacher_entropy'])
 
     def test_response_mask_aggregation(self):
         from tensordict import TensorDict

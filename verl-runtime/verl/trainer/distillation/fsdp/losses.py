@@ -121,8 +121,16 @@ def compute_forward_kl_topk(
             # token for the sampled reverse term; it is not part of teacher top-k.
             teacher_topk_log_probs = teacher_topk_log_probs[..., :-1]
             teacher_topk_ids = teacher_topk_ids[..., :-1]
+        teacher_gate_log_probs = None
+        if loss_config.loss_mode in ("entropy_kl", "entropy_jsd"):
+            if teacher_topk_log_probs.shape[-1] < max(loss_config.topk, loss_config.entropy_topk):
+                raise ValueError("Teacher returned fewer logprobs than topk or entropy_topk.")
+            teacher_gate_log_probs = teacher_topk_log_probs[..., :loss_config.entropy_topk]
+        teacher_topk_log_probs = teacher_topk_log_probs[..., :loss_config.topk]
+        teacher_topk_ids = teacher_topk_ids[..., :loss_config.topk]
         return compute_distribution_from_logits(
             student_logits, teacher_topk_log_probs, teacher_topk_ids, loss_config,
+            teacher_gate_log_probs=teacher_gate_log_probs,
         )
     use_chunked_topk = getattr(loss_config, "use_chunked_topk", False)
     if use_chunked_topk:

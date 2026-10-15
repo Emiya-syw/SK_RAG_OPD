@@ -30,12 +30,13 @@ class FakeClient:
         return SimpleNamespace(extra_fields=extra_fields)
 
 
-def manager(client, mode='forward_kl_topk'):
+def manager(client, mode='forward_kl_topk', entropy_topk=2):
     obj = AsyncTeacherLLMServerManager.__new__(AsyncTeacherLLMServerManager)
     obj.teacher_model_configs = {'teacher': SimpleNamespace(inference=SimpleNamespace(temperature=1.0))}
     obj.teacher_client = {'teacher': client}
     obj.distillation_loss_config = SimpleNamespace(
-        topk=2, loss_mode=mode, loss_settings=SimpleNamespace(use_topk=True))
+        topk=2, entropy_topk=entropy_topk, loss_mode=mode,
+        loss_settings=SimpleNamespace(use_topk=True))
     return obj
 
 
@@ -86,6 +87,15 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
         self.assertIsNone(entropy)
         self.assertEqual(client.last_request['sampling_params']['prompt_logprobs'], 2)
         self.assertNotIn('entropy_topk', client.last_request['sampling_params'])
+
+    def test_entropy_gate_requests_independent_topk(self):
+        for mode in ('entropy_kl', 'entropy_jsd'):
+            with self.subTest(mode=mode):
+                client = FakeClient([[1, 2, 3, 4]] * 4,
+                                    sampled_logprobs=[-.1, -.2, -.3, 0.])
+                asyncio.run(manager(client, mode=mode, entropy_topk=4)
+                            .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
+                self.assertEqual(client.last_request['sampling_params']['prompt_logprobs'], 4)
 
     def test_entropy_kl_requires_sampled_logprob(self):
         with self.assertRaisesRegex(ValueError, 'requires the teacher logprob'):

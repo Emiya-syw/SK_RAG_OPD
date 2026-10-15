@@ -160,11 +160,9 @@ ROLLOUT_ENABLE_PREFIX_CACHING="${ROLLOUT_ENABLE_PREFIX_CACHING:-true}"
 DISTILLATION_ENABLED="${DISTILLATION_ENABLED:-true}"
 # loss 类型：k3、rollout_mixture_k3、forward_kl_topk（旧版）、forward_kl、jsd、entropy_kl、entropy_jsd、k1（仅 PG）等。
 DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
-# teacher top-k 数；熵门控默认 32，其余损失默认 16。可用环境变量覆盖。
-case "${DISTILLATION_LOSS_MODE}" in
-  entropy_kl|entropy_jsd) DISTILLATION_TOPK="${DISTILLATION_TOPK:-32}" ;;
-  *) DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}" ;;
-esac
+# 损失使用教师前 DISTILLATION_TOPK 个 token；熵门控独立使用前 ENTROPY_TOPK 个。
+DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}"
+ENTROPY_TOPK="${ENTROPY_TOPK:-64}"
 # jsd 默认 0.5 为标准对称 JSD；beta 是混合分布中教师的系数。
 JSD_BETA="${JSD_BETA:-0.5}"
 # 熵差软门控先计算 alpha_raw=eps+(1-2eps)*sigmoid((H_teacher-H_student)/temperature)。
@@ -339,7 +337,7 @@ render_training_config() {
     ROLLOUT_IGNORE_EOS ROLLOUT_ENFORCE_EAGER ROLLOUT_MAX_NUM_BATCHED_TOKENS \
     ROLLOUT_MAX_NUM_SEQS ROLLOUT_ENABLE_CHUNKED_PREFILL ROLLOUT_ENABLE_PREFIX_CACHING
   render_config_group "teacher_and_distillation" \
-    DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK \
+    DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK ENTROPY_TOPK \
     JSD_BETA ENTROPY_GATE_TEMPERATURE ENTROPY_GATE_EPSILON ENTROPY_GATE_TAIL_CUTOFF ENTROPY_JSD_NORMALIZE \
     DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT \
     ROLLOUT_MIXTURE_ENABLED ROLLOUT_MIXTURE_OFF_POLICY_RATIO ROLLOUT_MIXTURE_FIELD \
@@ -584,6 +582,7 @@ train_status=0
   "+distillation.teacher_models.teacher_model.inference.engine_kwargs.vllm.attention_backend=${VLLM_ATTENTION_BACKEND}" \
   "distillation.distillation_loss.loss_mode=${DISTILLATION_LOSS_MODE}" \
   "distillation.distillation_loss.topk=${DISTILLATION_TOPK}" \
+  "distillation.distillation_loss.entropy_topk=${ENTROPY_TOPK}" \
   "distillation.distillation_loss.jsd_beta=${JSD_BETA}" \
   "distillation.distillation_loss.entropy_gate_temperature=${ENTROPY_GATE_TEMPERATURE}" \
   "distillation.distillation_loss.entropy_gate_epsilon=${ENTROPY_GATE_EPSILON}" \

@@ -64,6 +64,7 @@ class DistillationLossConfig(BaseConfig):
 
     loss_mode: str = "k3"
     topk: Optional[int] = 16
+    entropy_topk: int = 64
     use_task_rewards: bool = True
     distillation_loss_coef: float = 1.0
     loss_max_clamp: Optional[float] = 10.0
@@ -114,6 +115,7 @@ class DistillationLossConfig(BaseConfig):
         validate_distribution_settings(
             self.loss_mode, self.topk, self.jsd_beta, self.entropy_gate_temperature,
             self.entropy_gate_epsilon, self.use_policy_gradient, self.entropy_gate_tail_cutoff,
+            self.entropy_topk,
         )
 
         if self.policy_loss_mode != "vanilla":
@@ -317,7 +319,9 @@ class DistillationConfig(BaseConfig):
         for teacher_model in self.teacher_models.values():
             teacher_model.validate_and_prepare_for_distillation(
                 use_topk=self.distillation_loss.loss_settings.use_topk,
-                topk=self.distillation_loss.topk,
+                topk=(max(self.distillation_loss.topk, self.distillation_loss.entropy_topk)
+                      if self.distillation_loss.loss_mode in ("entropy_kl", "entropy_jsd")
+                      else self.distillation_loss.topk),
             )
             teacher_world_size_sum += teacher_model.world_size
         total_pool_size = self.n_gpus_per_node * self.nnodes

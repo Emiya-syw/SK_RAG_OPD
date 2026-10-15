@@ -49,6 +49,8 @@ def _get_teacher_sampling_params(
             teacher_model_config.inference.temperature,
         )
     num_logprobs = distillation_loss_config.topk if distillation_loss_config.loss_settings.use_topk else 0
+    if distillation_loss_config.loss_mode in ("entropy_kl", "entropy_jsd"):
+        num_logprobs = max(num_logprobs, distillation_loss_config.entropy_topk)
     return {
         "max_tokens": 1,
         "temperature": 1.0,

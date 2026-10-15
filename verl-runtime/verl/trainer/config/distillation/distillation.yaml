@@ -25,6 +25,8 @@ distillation_loss:
 
   # If distillation loss requires top-k logits, this is the value of k
   topk: 16
+  # Independent top-k for the approximate entropy gate; only topk enters the loss.
+  entropy_topk: 64
 
   # FSDP eager teacher-topk distributions; forward KL normalizes teacher top-k only.
   # jsd is standard symmetric JSD at beta=.5; beta weights the teacher in M.
