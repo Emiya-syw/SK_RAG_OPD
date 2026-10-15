@@ -48,6 +48,13 @@ elif vs.parse(package_version) >= vs.parse("0.18.0"):
     VLLM_SLEEP_LEVEL = 2
     from vllm import LLM
     from vllm.distributed import parallel_state
+elif vs.parse(package_version) >= vs.parse("0.6.3"):
+    # Local CUDA-12/Python-3.11 fallback for the 2B OPD run. Newer vLLM wheels
+    # available to this container either require a newer glibc or CUDA 13.
+    vllm_version = package_version
+    VLLM_SLEEP_LEVEL = 1
+    from vllm import LLM
+    from vllm.distributed import parallel_state
 else:
     # An unusable vLLM is tolerated when SGLang can serve as the backend instead,
     # matching the branch above for a missing vLLM.
