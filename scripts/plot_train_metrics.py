@@ -17,7 +17,7 @@ PANELS = (
     ("Loss", ("actor/distillation/loss", "actor/loss", "actor/distillation/forward_component", "actor/distillation/sampled_reverse_kl")),
     ("Entropy (nat)", ("actor/distillation/student_entropy", "actor/distillation/teacher_entropy", "actor/entropy")),
     ("Mixing weights", ("actor/distillation/forward_weight", "actor/distillation/jsd_beta")),
-    ("Top-k probability mass", ("actor/distillation/student_mass", "actor/distillation/teacher_mass")),
+    ("Top-k probability mass", ("actor/distillation/student_mass", "actor/distillation/teacher_mass", "actor/distillation/teacher_topk_coverage")),
     ("Response length", ("response_length/mean", "response_length/max", "prompt_length/mean")),
     ("Truncation and aborted ratio", ("response_length/clip_ratio", "prompt_length/clip_ratio", "response/aborted_ratio")),
     ("Gradient norm", ("actor/grad_norm",)),

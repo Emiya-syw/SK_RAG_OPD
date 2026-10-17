@@ -87,6 +87,9 @@ class DistillationLossConfig(BaseConfig):
     entropy_gate_temperature: float = 1.0
     entropy_gate_epsilon: float = 0.05
     entropy_gate_tail_cutoff: float = 0.2
+    entropy_kl_teacher_entropy_threshold: float = 0.8
+    entropy_kl_coverage_deficit_scale: float = 0.3
+    entropy_kl_teacher_mass_floor: float = 0.95
     entropy_jsd_normalize: bool = False
 
     use_policy_gradient: bool = True
@@ -115,7 +118,8 @@ class DistillationLossConfig(BaseConfig):
         validate_distribution_settings(
             self.loss_mode, self.topk, self.jsd_beta, self.entropy_gate_temperature,
             self.entropy_gate_epsilon, self.use_policy_gradient, self.entropy_gate_tail_cutoff,
-            self.entropy_topk,
+            self.entropy_topk, self.entropy_kl_teacher_entropy_threshold,
+            self.entropy_kl_coverage_deficit_scale, self.entropy_kl_teacher_mass_floor,
         )
 
         if self.policy_loss_mode != "vanilla":

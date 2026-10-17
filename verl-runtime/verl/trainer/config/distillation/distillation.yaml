@@ -35,6 +35,10 @@ distillation_loss:
   entropy_gate_epsilon: 0.05
   # Gate confidence falls linearly to zero when either model's top-k tail mass reaches this value.
   entropy_gate_tail_cutoff: 0.2
+  # entropy_kl: teacher entropy, missing teacher-top-k mass, and top-k quality gate.
+  entropy_kl_teacher_entropy_threshold: 0.8
+  entropy_kl_coverage_deficit_scale: 0.3
+  entropy_kl_teacher_mass_floor: 0.95
   # Adaptive JSD only: divide by beta*(1-beta). False preserves standard scale.
   entropy_jsd_normalize: false
 

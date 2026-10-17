@@ -19,7 +19,8 @@ DISTRIBUTION_LOSS_MODES = ("forward_kl", "jsd", "entropy_kl", "entropy_jsd")
 
 
 def validate_distribution_settings(
-    mode, topk, beta, gate_temperature, gate_epsilon, use_policy_gradient, tail_cutoff=0.2, entropy_topk=64
+    mode, topk, beta, gate_temperature, gate_epsilon, use_policy_gradient, tail_cutoff=0.2, entropy_topk=64,
+    teacher_entropy_threshold=0.8, coverage_deficit_scale=0.3, teacher_mass_floor=0.95,
 ):
     if mode not in DISTRIBUTION_LOSS_MODES:
         return
@@ -37,6 +38,12 @@ def validate_distribution_settings(
         raise ValueError("entropy_gate_epsilon must be finite and in (0, 0.5).")
     if not math.isfinite(tail_cutoff) or not 0 < tail_cutoff <= 1:
         raise ValueError("entropy_gate_tail_cutoff must be finite and in (0, 1].")
+    if not math.isfinite(teacher_entropy_threshold) or teacher_entropy_threshold < 0:
+        raise ValueError("entropy_kl_teacher_entropy_threshold must be finite and >= 0.")
+    if not math.isfinite(coverage_deficit_scale) or not 0 < coverage_deficit_scale <= 1:
+        raise ValueError("entropy_kl_coverage_deficit_scale must be finite and in (0, 1].")
+    if not math.isfinite(teacher_mass_floor) or not 0 < teacher_mass_floor < 1:
+        raise ValueError("entropy_kl_teacher_mass_floor must be finite and in (0, 1).")
     if use_policy_gradient:
         raise ValueError(
             "Distribution losses require use_policy_gradient=False "
@@ -107,10 +114,29 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         teacher_topk_log_probs.exp() * (teacher_topk_log_probs - student_topk_log_probs)
     ).sum(-1)
     eps = config.entropy_gate_epsilon
-    alpha = eps + (1 - 2 * eps) * torch.sigmoid((ht - hs) / config.entropy_gate_temperature)
-    if tail_confidence is not None:
-        alpha = 0.5 + tail_confidence * (alpha - 0.5)
-    alpha = alpha.detach()
+    if mode == "entropy_kl":
+        # Compare raw full-softmax probabilities on the identical teacher top-k
+        # IDs. A student overallocating one teacher token cannot compensate for
+        # missing another teacher mode.
+        teacher_prob = teacher_log_probs.detach().to(student_topk_log_probs.dtype).exp()
+        student_prob = student_topk_log_probs.detach().exp()
+        coverage = torch.minimum(teacher_prob, student_prob).sum(-1) / teacher_mass.clamp_min(1e-12)
+        coverage = coverage.clamp(0, 1).detach()
+        deficit = ((1 - coverage) / config.entropy_kl_coverage_deficit_scale).clamp(0, 1)
+        entropy_signal = torch.sigmoid(
+            (ht - config.entropy_kl_teacher_entropy_threshold) / config.entropy_gate_temperature
+        )
+        teacher_mass_confidence = (
+            (teacher_mass - config.entropy_kl_teacher_mass_floor) /
+            (1 - config.entropy_kl_teacher_mass_floor)
+        ).clamp(0, 1).detach()
+        alpha = (teacher_mass_confidence * entropy_signal * deficit).detach()
+        tail_confidence = teacher_mass_confidence
+    else:
+        alpha = eps + (1 - 2 * eps) * torch.sigmoid((ht - hs) / config.entropy_gate_temperature)
+        if tail_confidence is not None:
+            alpha = 0.5 + tail_confidence * (alpha - 0.5)
+        alpha = alpha.detach()
     beta = 1 - alpha if mode == "entropy_jsd" else torch.full_like(hs, config.jsd_beta)
     if mode == "forward_kl":
         loss = forward
@@ -140,6 +166,8 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         result["entropy_gate_confidence"] = tail_confidence
     if mode in ("forward_kl", "entropy_kl"):
         result["forward_weight"] = alpha
+        if mode == "entropy_kl":
+            result["teacher_topk_coverage"] = coverage
     else:
         result["jsd_beta"] = beta.detach()
     return result

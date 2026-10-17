@@ -320,8 +320,7 @@ def distillation_loss(
                 == forward_weight.shape
             )
             sampled_reverse_kl = old_log_prob.detach() - teacher_sampled_log_prob.detach()
-            reverse_weight = 1 - forward_weight.detach()
-            advantage = -(reverse_weight * sampled_reverse_kl).detach()
+            advantage = -sampled_reverse_kl.detach()
             ratio = (current_log_prob - old_log_prob).clamp(-20.0, 20.0).exp()
             clip_low = loss_config.clip_ratio_low if loss_config.clip_ratio_low is not None else loss_config.clip_ratio
             clip_high = loss_config.clip_ratio_high if loss_config.clip_ratio_high is not None else loss_config.clip_ratio
@@ -339,10 +338,15 @@ def distillation_loss(
             )
             distillation_loss = distillation_loss + reverse_loss
             valid = response_mask.bool()
+            valid_reverse_gap = sampled_reverse_kl[valid].detach().abs()
             distillation_metrics["distillation/forward_component"] = distillation_losses[valid].detach().mean().item()
-            distillation_metrics["distillation/sampled_reverse_kl"] = (
-                reverse_weight * sampled_reverse_kl
-            )[valid].mean().item()
+            distillation_metrics["distillation/reverse_component_token_mean"] = reverse_mat[valid].detach().mean().item()
+            distillation_metrics["distillation/sampled_reverse_kl"] = sampled_reverse_kl[valid].mean().item()
+            distillation_metrics["distillation/sampled_reverse_kl_abs_mean"] = valid_reverse_gap.mean().item()
+            distillation_metrics["distillation/sampled_reverse_kl_abs_max"] = valid_reverse_gap.max().item()
+            distillation_metrics["distillation/sampled_reverse_kl_abs_gt_5_frac"] = (
+                valid_reverse_gap > 5
+            ).float().mean().item()
             distillation_metrics["distillation/pg_clipfrac"] = (clipped > unclipped)[valid].float().mean().item()
 
     return distillation_loss, distillation_metrics
@@ -415,7 +419,7 @@ def compute_forward_kl_topk(
     }
     for name in (
         "student_entropy", "teacher_entropy", "forward_weight", "jsd_beta",
-        "student_tail_mass", "teacher_tail_mass", "entropy_gate_confidence",
+        "student_tail_mass", "teacher_tail_mass", "entropy_gate_confidence", "teacher_topk_coverage",
     ):
         if name in model_output:
             values = no_padding_2_padding(model_output[name], data)

@@ -165,12 +165,17 @@ DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}"
 ENTROPY_TOPK="${ENTROPY_TOPK:-64}"
 # jsd 默认 0.5 为标准对称 JSD；beta 是混合分布中教师的系数。
 JSD_BETA="${JSD_BETA:-0.5}"
-# 熵差软门控先计算 alpha_raw=eps+(1-2eps)*sigmoid((H_teacher-H_student)/temperature)。
-# H 使用师生各自 top-k 原始概率和一个尾部桶近似，不请求全词表教师 logprobs。
+# entropy_jsd 使用师生熵差；entropy_kl 使用教师熵与学生逐词覆盖率。
+# 熵使用各自 top-k 原始概率和一个尾部桶近似，不请求全词表教师 logprobs。
 ENTROPY_GATE_TEMPERATURE="${ENTROPY_GATE_TEMPERATURE:-1.0}"
+# 仅 entropy_jsd：熵差门控的最小/最大混合系数边界。
 ENTROPY_GATE_EPSILON="${ENTROPY_GATE_EPSILON:-0.05}"
-# 任一模型的 top-k 尾部质量达到此值时，熵门控系数退回 0.5。
+# 仅 entropy_jsd：任一模型的熵 top-k 尾部质量达到此值时，门控退回 0.5。
 ENTROPY_GATE_TAIL_CUTOFF="${ENTROPY_GATE_TAIL_CUTOFF:-0.2}"
+# 仅 entropy_kl：教师熵阈值、学生逐词覆盖缺口饱和值、教师损失 top-k 最低质量。
+ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD="${ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD:-0.8}"
+ENTROPY_KL_COVERAGE_DEFICIT_SCALE="${ENTROPY_KL_COVERAGE_DEFICIT_SCALE:-0.3}"
+ENTROPY_KL_TEACHER_MASS_FLOOR="${ENTROPY_KL_TEACHER_MASS_FLOOR:-0.95}"
 # 仅 entropy_jsd：可选除以 beta*(1-beta)，默认不额外缩放。
 ENTROPY_JSD_NORMALIZE="${ENTROPY_JSD_NORMALIZE:-false}"
 # 蒸馏 loss 权重。非负浮点数；与 task reward 联用时控制蒸馏占比。
@@ -339,6 +344,7 @@ render_training_config() {
   render_config_group "teacher_and_distillation" \
     DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK ENTROPY_TOPK \
     JSD_BETA ENTROPY_GATE_TEMPERATURE ENTROPY_GATE_EPSILON ENTROPY_GATE_TAIL_CUTOFF ENTROPY_JSD_NORMALIZE \
+    ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD ENTROPY_KL_COVERAGE_DEFICIT_SCALE ENTROPY_KL_TEACHER_MASS_FLOOR \
     DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT \
     ROLLOUT_MIXTURE_ENABLED ROLLOUT_MIXTURE_OFF_POLICY_RATIO ROLLOUT_MIXTURE_FIELD \
     LOSS_MAX_CLAMP \
@@ -587,6 +593,9 @@ train_status=0
   "distillation.distillation_loss.entropy_gate_temperature=${ENTROPY_GATE_TEMPERATURE}" \
   "distillation.distillation_loss.entropy_gate_epsilon=${ENTROPY_GATE_EPSILON}" \
   "distillation.distillation_loss.entropy_gate_tail_cutoff=${ENTROPY_GATE_TAIL_CUTOFF}" \
+  "distillation.distillation_loss.entropy_kl_teacher_entropy_threshold=${ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD}" \
+  "distillation.distillation_loss.entropy_kl_coverage_deficit_scale=${ENTROPY_KL_COVERAGE_DEFICIT_SCALE}" \
+  "distillation.distillation_loss.entropy_kl_teacher_mass_floor=${ENTROPY_KL_TEACHER_MASS_FLOOR}" \
   "distillation.distillation_loss.entropy_jsd_normalize=${ENTROPY_JSD_NORMALIZE}" \
   "distillation.distillation_loss.distillation_loss_coef=${DISTILLATION_LOSS_COEF}" \
   "distillation.distillation_loss.use_task_rewards=${USE_TASK_REWARDS}" \
