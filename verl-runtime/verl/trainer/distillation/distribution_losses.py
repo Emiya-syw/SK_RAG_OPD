@@ -2,13 +2,14 @@
 
 Forward KL follows EOPD: normalize the teacher's top-k probabilities, then
 score those tokens against the student's full-vocabulary probabilities. JSD
-and entropy_jsd normalize each loss distribution over teacher top-k only. Both
-entropy modes approximate full-vocabulary entropy from each model's own top-k
-probabilities and one bucket for the remaining probability mass. Their shared
-coefficient uses teacher entropy, student coverage, and teacher top-k mass.
+and entropy_jsd retain full-softmax mass on teacher top-k plus a residual
+bucket for all other tokens. Both entropy modes approximate full-vocabulary
+entropy from each model's own top-k probabilities and one bucket for the
+remaining probability mass. Their shared gate signal uses teacher entropy,
+student coverage, and teacher top-k mass.
 The entropy_kl reverse component instead uses the student-sampled token's
-teacher and student logprobs with a PPO surrogate in losses.py. No residual-mass
-bucket is used in the KL/JSD loss itself.
+teacher and student logprobs with a PPO surrogate in losses.py. Forward KL
+does not use a residual-mass bucket.
 """
 
 import math
@@ -74,13 +75,22 @@ def _tail_bucket_entropy(log_probs):
     return entropy.detach(), tail_mass.detach()
 
 
+def _distribution_with_tail(log_probs):
+    """Full-softmax probabilities on teacher top-k plus one residual bucket."""
+    log_probs = log_probs.double() if log_probs.dtype == torch.float64 else log_probs.float()
+    probabilities = log_probs.exp()
+    tail = (1 - probabilities.sum(-1, keepdim=True)).clamp_min(0)
+    probabilities = torch.cat((probabilities, tail), dim=-1)
+    return probabilities / probabilities.sum(-1, keepdim=True).clamp_min(1e-12)
+
+
 def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate_log_probs=None,
                       teacher_gate_log_probs=None):
     """Return differentiable token losses and detached, per-token diagnostics.
 
     alpha is the FKL coefficient for entropy_kl and the student mixture
-    coefficient for entropy_jsd. beta is the TEACHER
-    coefficient in M=beta*T+(1-beta)*S for JSD, so beta=1-alpha in entropy_jsd.
+    coefficient for entropy_jsd. beta is the TEACHER coefficient in
+    M=beta*T+(1-beta)*S. Low teacher top-k mass sends entropy_jsd beta to 0.5.
     Only the teacher and gate are detached; the student's contribution to M
     MUST remain differentiable. jsd_beta=0.5 gives ordinary symmetric JSD.
     """
@@ -128,7 +138,13 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
             (teacher_mass - config.entropy_kl_teacher_mass_floor) /
             (1 - config.entropy_kl_teacher_mass_floor)
         ).clamp(0, 1).detach()
-        alpha = (teacher_mass_confidence * entropy_signal * deficit).detach()
+        raw_alpha = entropy_signal * deficit
+        if mode == "entropy_jsd":
+            # Unreliable top-k mass removes the adaptive tilt, not the JSD
+            # supervision. Entropy KL still gates its additional FKL term.
+            alpha = (0.5 + teacher_mass_confidence * (raw_alpha - 0.5)).detach()
+        else:
+            alpha = (teacher_mass_confidence * raw_alpha).detach()
         tail_confidence = teacher_mass_confidence
     else:
         alpha = torch.zeros_like(hs)
@@ -142,12 +158,18 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         loss = alpha * forward
     else:
         b = beta.unsqueeze(-1)
-        log_m = torch.logaddexp(log_t + b.log(), log_s + torch.log1p(-b))
-        loss = beta * (t * (log_t - log_m)).sum(-1) + (1 - beta) * (s * (log_s - log_m)).sum(-1)
+        t_jsd = _distribution_with_tail(teacher_log_probs.detach())
+        s_jsd = _distribution_with_tail(student_log_probs)
+        log_m = (b * t_jsd + (1 - b) * s_jsd).clamp_min(1e-12).log()
+        log_t_jsd = t_jsd.clamp_min(1e-12).log()
+        log_s_jsd = s_jsd.clamp_min(1e-12).log()
+        loss = beta * (t_jsd * (log_t_jsd - log_m)).sum(-1) + (
+            1 - beta
+        ) * (s_jsd * (log_s_jsd - log_m)).sum(-1)
         # Optional scale normalization for the adaptive mode only. Disabled by
         # default: otherwise even beta=.5 is 4 times ordinary symmetric JSD.
         if mode == "entropy_jsd" and config.entropy_jsd_normalize:
-            # alpha can be exactly zero when teacher top-k mass is too low.
+            # alpha can be exactly zero when student coverage is complete.
             # In that case beta=1 and the JSD term is exactly zero.
             loss = loss / (beta * (1 - beta)).clamp_min(1e-12)
     result = {
