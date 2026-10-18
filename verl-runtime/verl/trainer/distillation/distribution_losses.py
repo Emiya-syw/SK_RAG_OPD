@@ -3,8 +3,9 @@
 Forward KL follows EOPD: normalize the teacher's top-k probabilities, then
 score those tokens against the student's full-vocabulary probabilities. JSD
 and entropy_jsd normalize each loss distribution over teacher top-k only. Both
-entropy gates approximate full-vocabulary entropy from each model's own top-k
-probabilities and one bucket for the remaining probability mass.
+entropy modes approximate full-vocabulary entropy from each model's own top-k
+probabilities and one bucket for the remaining probability mass. Their shared
+coefficient uses teacher entropy, student coverage, and teacher top-k mass.
 The entropy_kl reverse component instead uses the student-sampled token's
 teacher and student logprobs with a PPO surrogate in losses.py. No residual-mass
 bucket is used in the KL/JSD loss itself.
@@ -77,7 +78,8 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
                       teacher_gate_log_probs=None):
     """Return differentiable token losses and detached, per-token diagnostics.
 
-    alpha is the FKL coefficient for entropy_kl. beta is the TEACHER
+    alpha is the FKL coefficient for entropy_kl and the student mixture
+    coefficient for entropy_jsd. beta is the TEACHER
     coefficient in M=beta*T+(1-beta)*S for JSD, so beta=1-alpha in entropy_jsd.
     Only the teacher and gate are detached; the student's contribution to M
     MUST remain differentiable. jsd_beta=0.5 gives ordinary symmetric JSD.
@@ -101,9 +103,6 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         )
         if hs.shape != ht.shape:
             raise ValueError("Student and teacher entropy rows must have matching token dimensions.")
-        tail_confidence = (
-            1 - torch.maximum(student_tail, teacher_tail) / config.entropy_gate_tail_cutoff
-        ).clamp(0, 1)
     # EOPD Eq. (10): normalize only the teacher on its top-k support. Keep the
     # student's original full-softmax probabilities; normalizing them on the
     # same support would remove the penalty for mass outside the teacher top-k.
@@ -113,8 +112,7 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
     forward = (
         teacher_topk_log_probs.exp() * (teacher_topk_log_probs - student_topk_log_probs)
     ).sum(-1)
-    eps = config.entropy_gate_epsilon
-    if mode == "entropy_kl":
+    if mode in ("entropy_kl", "entropy_jsd"):
         # Compare raw full-softmax probabilities on the identical teacher top-k
         # IDs. A student overallocating one teacher token cannot compensate for
         # missing another teacher mode.
@@ -133,10 +131,7 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         alpha = (teacher_mass_confidence * entropy_signal * deficit).detach()
         tail_confidence = teacher_mass_confidence
     else:
-        alpha = eps + (1 - 2 * eps) * torch.sigmoid((ht - hs) / config.entropy_gate_temperature)
-        if tail_confidence is not None:
-            alpha = 0.5 + tail_confidence * (alpha - 0.5)
-        alpha = alpha.detach()
+        alpha = torch.zeros_like(hs)
     beta = 1 - alpha if mode == "entropy_jsd" else torch.full_like(hs, config.jsd_beta)
     if mode == "forward_kl":
         loss = forward
@@ -152,7 +147,9 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         # Optional scale normalization for the adaptive mode only. Disabled by
         # default: otherwise even beta=.5 is 4 times ordinary symmetric JSD.
         if mode == "entropy_jsd" and config.entropy_jsd_normalize:
-            loss = loss / (beta * (1 - beta))
+            # alpha can be exactly zero when teacher top-k mass is too low.
+            # In that case beta=1 and the JSD term is exactly zero.
+            loss = loss / (beta * (1 - beta)).clamp_min(1e-12)
     result = {
         "distillation_losses": loss.clamp_min(0),
         "student_mass": student_mass.detach(),
@@ -164,10 +161,9 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         result["student_tail_mass"] = student_tail
         result["teacher_tail_mass"] = teacher_tail
         result["entropy_gate_confidence"] = tail_confidence
+        result["teacher_topk_coverage"] = coverage
     if mode in ("forward_kl", "entropy_kl"):
         result["forward_weight"] = alpha
-        if mode == "entropy_kl":
-            result["teacher_topk_coverage"] = coverage
     else:
         result["jsd_beta"] = beta.detach()
     return result

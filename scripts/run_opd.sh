@@ -165,14 +165,14 @@ DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}"
 ENTROPY_TOPK="${ENTROPY_TOPK:-64}"
 # jsd 默认 0.5 为标准对称 JSD；beta 是混合分布中教师的系数。
 JSD_BETA="${JSD_BETA:-0.5}"
-# entropy_jsd 使用师生熵差；entropy_kl 使用教师熵与学生逐词覆盖率。
+# entropy_kl 与 entropy_jsd 共用教师熵、学生逐词覆盖率和教师 top-k 质量系数。
 # 熵使用各自 top-k 原始概率和一个尾部桶近似，不请求全词表教师 logprobs。
 ENTROPY_GATE_TEMPERATURE="${ENTROPY_GATE_TEMPERATURE:-1.0}"
-# 仅 entropy_jsd：熵差门控的最小/最大混合系数边界。
+# 旧 entropy_jsd 熵差门控参数；保留配置兼容性，当前系数不使用。
 ENTROPY_GATE_EPSILON="${ENTROPY_GATE_EPSILON:-0.05}"
-# 仅 entropy_jsd：任一模型的熵 top-k 尾部质量达到此值时，门控退回 0.5。
+# 旧 entropy_jsd 尾部质量门控参数；保留配置兼容性，当前系数不使用。
 ENTROPY_GATE_TAIL_CUTOFF="${ENTROPY_GATE_TAIL_CUTOFF:-0.2}"
-# 仅 entropy_kl：教师熵阈值、学生逐词覆盖缺口饱和值、教师损失 top-k 最低质量。
+# entropy_kl 与 entropy_jsd 共用：教师熵阈值、学生逐词覆盖缺口饱和值、教师损失 top-k 最低质量。
 ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD="${ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD:-0.8}"
 ENTROPY_KL_COVERAGE_DEFICIT_SCALE="${ENTROPY_KL_COVERAGE_DEFICIT_SCALE:-0.3}"
 ENTROPY_KL_TEACHER_MASS_FLOOR="${ENTROPY_KL_TEACHER_MASS_FLOOR:-0.95}"

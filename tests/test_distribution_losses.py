@@ -95,15 +95,30 @@ class DistributionLossTests(unittest.TestCase):
         torch.testing.assert_close(out['forward_weight'], torch.zeros(1))
         torch.testing.assert_close(out['entropy_gate_confidence'], torch.zeros(1))
 
-    def test_entropy_jsd_gate_neutralizes_large_tail(self):
+    def test_entropy_jsd_shares_entropy_kl_coefficient(self):
+        student = torch.tensor([[.7, .2, .1]]).log()
+        teacher = torch.tensor([[.3, .5, .2]]).log()
+        kl_out = distribution_loss(student, teacher, config('entropy_kl', topk=3))
+        jsd_out = distribution_loss(student, teacher, config('entropy_jsd', topk=3))
+        torch.testing.assert_close(1 - jsd_out['jsd_beta'], kl_out['forward_weight'])
+        torch.testing.assert_close(jsd_out['teacher_topk_coverage'], kl_out['teacher_topk_coverage'])
+        torch.testing.assert_close(jsd_out['entropy_gate_confidence'], kl_out['entropy_gate_confidence'])
+
+    def test_entropy_jsd_uses_entropy_kl_coefficient_and_zero_mass_endpoint(self):
         logits = torch.tensor([[[2., 1., 0., -1.]]], requires_grad=True)
         teacher_logits = torch.tensor([[[1., 0., -.5, -2.]]])
         teacher_logprobs = teacher_logits.log_softmax(-1)[..., :2]
         out = compute_distribution_from_logits(logits, teacher_logprobs,
-                                               torch.tensor([[[0, 1]]]), config('entropy_jsd', entropy_gate_tail_cutoff=.1))
-        torch.testing.assert_close(out['jsd_beta'], torch.full_like(out['jsd_beta'], .5))
+                                               torch.tensor([[[0, 1]]]), config('entropy_jsd'))
+        torch.testing.assert_close(out['jsd_beta'], torch.ones_like(out['jsd_beta']))
         torch.testing.assert_close(out['entropy_gate_confidence'], torch.zeros_like(out['jsd_beta']))
+        torch.testing.assert_close(out['distillation_losses'], torch.zeros_like(out['jsd_beta']))
         self.assertFalse(out['jsd_beta'].requires_grad)
+        normalized = compute_distribution_from_logits(logits, teacher_logprobs,
+                            torch.tensor([[[0, 1]]]), config('entropy_jsd', entropy_jsd_normalize=True))
+        self.assertTrue(torch.isfinite(normalized['distillation_losses']).all())
+        normalized['distillation_losses'].sum().backward()
+        self.assertTrue(torch.isfinite(logits.grad).all())
 
     def test_formulas_and_gradients(self):
         for mode in DISTRIBUTION_LOSS_MODES:
@@ -117,9 +132,7 @@ class DistributionLossTests(unittest.TestCase):
                 coverage = torch.minimum(s, t).sum(-1)
                 deficit = ((1 - coverage) / .3).clamp(0, 1)
                 entropy_signal = torch.sigmoid((ht - .8) / 1.)
-                alpha = (entropy_signal * deficit).detach() if mode == 'entropy_kl' else (
-                    .05 + .9 * torch.sigmoid(ht - hs)
-                ).detach()
+                alpha = (entropy_signal * deficit).detach()
                 beta = 1 - alpha if mode == 'entropy_jsd' else torch.full_like(alpha, .5)
                 m = beta[:, None] * t + (1-beta[:, None]) * s
                 expected = {'forward_kl': kl(t, s), 'entropy_kl': alpha*kl(t, s),
@@ -136,8 +149,8 @@ class DistributionLossTests(unittest.TestCase):
                     self.assertGreaterEqual(out['forward_weight'][0].item(), 0.)
                     self.assertLessEqual(out['forward_weight'][0].item(), 1.)
                 if mode == 'entropy_jsd':
-                    self.assertLess(out['jsd_beta'][0].item(), .5)
-                    self.assertGreater(out['jsd_beta'][1].item(), .5)
+                    torch.testing.assert_close(out['jsd_beta'], 1 - alpha)
+                    torch.testing.assert_close(out['teacher_topk_coverage'], coverage)
 
     def test_jsd_symmetry_bound_identity(self):
         a, b = torch.tensor([[.99, .01]]).log(), torch.tensor([[.02, .98]]).log()
@@ -188,8 +201,8 @@ class DistributionLossTests(unittest.TestCase):
         original = distribution_loss(s[:, :2].log(), t[:, :2].log(), config('forward_kl'))
         changed = distribution_loss(less_topk_mass.log(), t[:, :2].log(), config('forward_kl'))
         self.assertGreater(changed['distillation_losses'].item(), original['distillation_losses'].item())
-        original = distribution_loss(s[:, :2].log(), t[:, :2].log(), config('entropy_jsd', entropy_gate_tail_cutoff=1.0))
-        changed = distribution_loss(less_topk_mass.log(), t[:, :2].log(), config('entropy_jsd', entropy_gate_tail_cutoff=1.0))
+        original = distribution_loss(s[:, :2].log(), t[:, :2].log(), config('entropy_jsd', entropy_kl_teacher_mass_floor=.5))
+        changed = distribution_loss(less_topk_mass.log(), t[:, :2].log(), config('entropy_jsd', entropy_kl_teacher_mass_floor=.5))
         self.assertNotAlmostEqual(changed['jsd_beta'].item(), original['jsd_beta'].item())
 
     def test_forward_kl_uses_normalized_teacher_topk_and_full_student_probability(self):

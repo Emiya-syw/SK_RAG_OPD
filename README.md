@@ -185,13 +185,15 @@ DISTILLATION_LOSS_MODE=forward_kl_topk DISTILLATION_TOPK=16 \
 | `entropy_kl` | 保留系数为 1 的采样 PPO 式反向 KL 项，另加 `α` 乘上述前向 KL 近似；`α` 随教师熵、逐词覆盖缺口和教师 top-k 质量在 0–1 之间变化 |
 | `entropy_jsd` | 同上广义 JSD 公式，但逐 token 设置 `β=1−α` |
 
-这里 `M=βT+(1−β)S`。`entropy_kl` 和 `entropy_jsd` 使用师生各自前 `ENTROPY_TOPK` 个 token 的原始概率与一个尾部概率桶近似熵，熵采用自然对数，单位为 nat。`entropy_jsd` 仍使用熵差门控：`α_raw=ε+(1−2ε) sigmoid((H(T)−H(S))/τ)`，`confidence=clamp(1−max(teacher_tail,student_tail)/ENTROPY_GATE_TAIL_CUTOFF,0,1)`，`α=0.5+confidence*(α_raw−0.5)`，`β=1−α`。`entropy_kl` 改用教师熵与学生逐词覆盖率：在教师损失 top-k 集合 `K` 上计算 `C=Σmin(T(x),S(x))/ΣT(x)`，`D=clamp((1−C)/ENTROPY_KL_COVERAGE_DEFICIT_SCALE,0,1)`。教师 top-k 质量置信度为 `q=clamp((ΣT(K)−ENTROPY_KL_TEACHER_MASS_FLOOR)/(1−ENTROPY_KL_TEACHER_MASS_FLOOR),0,1)`，附加 FKL 系数为 `α=q·sigmoid((H(T)−ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD)/τ)·D`，范围为 0–1。反向项系数固定为 1；教师熵高、学生覆盖低且教师 top-k 质量足够时，FKL 附加项增加。教师分布与门控权重停止梯度，学生在 M 中的贡献保留梯度。
+这里 `M=βT+(1−β)S`。`entropy_kl` 和 `entropy_jsd` 使用师生各自前 `ENTROPY_TOPK` 个 token 的原始概率与一个尾部概率桶近似熵，熵采用自然对数，单位为 nat。两种模式现共用系数：在教师损失 top-k 集合 `K` 上计算 `C=Σmin(T(x),S(x))/ΣT(x)`，`D=clamp((1−C)/ENTROPY_KL_COVERAGE_DEFICIT_SCALE,0,1)`；教师 top-k 质量置信度为 `q=clamp((ΣT(K)−ENTROPY_KL_TEACHER_MASS_FLOOR)/(1−ENTROPY_KL_TEACHER_MASS_FLOOR),0,1)`；`α=q·sigmoid((H(T)−ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD)/τ)·D`，范围为 0–1。`entropy_kl` 用 `α` 乘附加前向 KL，反向 PPO 项系数固定为 1；`entropy_jsd` 用 `β=1−α` 作为 JSD 中教师的混合系数。教师分布与门控权重停止梯度，学生在 M 中的贡献保留梯度。旧熵差门控公式见 [2026-10-18 快照](reports/entropy_jsd_coefficient_snapshot_20261018.md)。
 
 ```bash
 # 将模式替换为 forward_kl / jsd / entropy_kl / entropy_jsd
 DISTILLATION_LOSS_MODE=entropy_jsd DISTILLATION_TOPK=16 ENTROPY_TOPK=64 \
   USE_POLICY_GRADIENT=false ENTROPY_GATE_TEMPERATURE=1.0 \
-  ENTROPY_GATE_EPSILON=0.05 ENTROPY_JSD_NORMALIZE=false \
+  ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD=0.8 \
+  ENTROPY_KL_COVERAGE_DEFICIT_SCALE=0.3 ENTROPY_KL_TEACHER_MASS_FLOOR=0.95 \
+  ENTROPY_JSD_NORMALIZE=false \
   bash scripts/train_consistent.sh
 
 # 标准 JSD；改变 JSD_BETA 可使用固定权重的广义 JSD
@@ -199,11 +201,11 @@ DISTILLATION_LOSS_MODE=jsd JSD_BETA=0.5 USE_POLICY_GRADIENT=false \
   bash scripts/run_opd.sh data/verl/train.parquet outputs/opd_jsd
 ```
 
-`forward_kl` 和 `entropy_kl` 的前向项按 EOPD 论文的 top-k 公式计算，默认 `DISTILLATION_TOPK=16`：教师概率仅在 top-k 内重归一化，学生使用完整 softmax 对这些 token 的原始概率，因此仍惩罚学生分配给 top-k 外的概率。熵门控独立使用 `ENTROPY_TOPK=64`：教师一次返回两种用途所需的较大 top-k，损失仅截取前 `DISTILLATION_TOPK` 项；学生从完整 logits 提取自己的前 `ENTROPY_TOPK` 项。它是带尾部桶的近似熵，不是精确全词表熵；尾部桶也不参与 KL/JSD 损失。`entropy_kl` 的逐词覆盖率使用损失 top-k 上双方完整 softmax 的原始概率，不在 top-k 内重新归一化；反向项使用学生实际采样词在师生模型下的 logprob，以 `log T−log S_old` 为 PPO 式优势。即使采样词不在教师 top-k 中，也会单独取得其教师概率。`student_mass` 和 `teacher_mass` 记录损失 top-k 内的原始概率质量。日志包含师生熵、尾部质量、逐词覆盖率、门控置信度以及 `forward_weight` 或 `jsd_beta`，只统计 response mask 内位置。师生须使用一致的词表及 token ID。
+`forward_kl` 和 `entropy_kl` 的前向项按 EOPD 论文的 top-k 公式计算，默认 `DISTILLATION_TOPK=16`：教师概率仅在 top-k 内重归一化，学生使用完整 softmax 对这些 token 的原始概率，因此仍惩罚学生分配给 top-k 外的概率。熵估计独立使用 `ENTROPY_TOPK=64`：教师一次返回两种用途所需的较大 top-k，损失仅截取前 `DISTILLATION_TOPK` 项；学生从完整 logits 提取自己的前 `ENTROPY_TOPK` 项。它是带尾部桶的近似熵，不是精确全词表熵；尾部桶也不参与 KL/JSD 损失。两种熵模式的逐词覆盖率使用损失 top-k 上双方完整 softmax 的原始概率，不在 top-k 内重新归一化；`entropy_kl` 反向项使用学生实际采样词在师生模型下的 logprob，以 `log T−log S_old` 为 PPO 式优势。即使采样词不在教师 top-k 中，也会单独取得其教师概率。`student_mass` 和 `teacher_mass` 记录损失 top-k 内的原始概率质量。日志包含师生熵、尾部质量、逐词覆盖率、门控置信度以及 `forward_weight` 或 `jsd_beta`，只统计 response mask 内位置。师生须使用一致的词表及 token ID。
 
 默认的 `k3` 反向 KL 路径只使用 rollout 实际采样 token 的师生 logprob，是单样本估计，并未请求完整词表概率。四种分布损失若要改成精确的完整词表版本，需要 teacher 返回每个回答位置的全量 logits；当前 vLLM teacher 接口只提供 prompt logprob 的 top-k 输出。
 
-新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。对 `entropy_kl`，此开关关闭通用蒸馏策略梯度路径，但其反向分量会在内部单独使用 EOPD 式标准 PPO clipping，不使用通用 `vanilla` PPO 的 dual-clip。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0；`ENTROPY_GATE_EPSILON` 默认 0.05 且须在 `(0,0.5)` 内，仅用于 `entropy_jsd`；`ENTROPY_GATE_TAIL_CUTOFF` 默认 0.2，也仅用于 `entropy_jsd`。`entropy_kl` 的教师熵阈值、覆盖缺口尺度和教师 top-k 质量下限默认分别为 0.8、0.3、0.95。`ENTROPY_JSD_NORMALIZE=true` 仅对 `entropy_jsd` 额外除以 `β(1−β)`，会改变损失尺度，默认关闭。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`；JSD 在损失 top-k 内归一化时采用 `1e-12` 概率下限，前向 KL 的学生原始概率不采用该下限。`LOSS_MAX_CLAMP` 仍限制直接反传的分布项（默认 10，设为 `null` 可关闭）；`entropy_kl` 的反向项使用 PPO 概率比 clipping，不应用这个损失截断。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `topk`、`entropy_topk`、`jsd_beta`、`entropy_gate_temperature`、`entropy_gate_epsilon`、`entropy_gate_tail_cutoff`、`entropy_kl_teacher_entropy_threshold`、`entropy_kl_coverage_deficit_scale`、`entropy_kl_teacher_mass_floor`、`entropy_jsd_normalize`。
+新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。对 `entropy_kl`，此开关关闭通用蒸馏策略梯度路径，但其反向分量会在内部单独使用 EOPD 式标准 PPO clipping，不使用通用 `vanilla` PPO 的 dual-clip。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0。两种熵模式共用教师熵阈值、覆盖缺口尺度和教师 top-k 质量下限，默认分别为 0.8、0.3、0.95。`ENTROPY_GATE_EPSILON` 与 `ENTROPY_GATE_TAIL_CUTOFF` 仅保留旧配置兼容性，不再参与系数计算。`ENTROPY_JSD_NORMALIZE=true` 仅对 `entropy_jsd` 额外除以 `β(1−β)`，会改变损失尺度，默认关闭；`β=1` 时损失为 0，归一化分母以 `1e-12` 保底。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`；JSD 在损失 top-k 内归一化时采用 `1e-12` 概率下限，前向 KL 的学生原始概率不采用该下限。`LOSS_MAX_CLAMP` 仍限制直接反传的分布项（默认 10，设为 `null` 可关闭）；`entropy_kl` 的反向项使用 PPO 概率比 clipping，不应用这个损失截断。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `topk`、`entropy_topk`、`jsd_beta`、`entropy_gate_temperature`、`entropy_kl_teacher_entropy_threshold`、`entropy_kl_coverage_deficit_scale`、`entropy_kl_teacher_mass_floor`、`entropy_jsd_normalize`。
 
 `train_eval_pipeline.sh` 的 2B 自动预设在四种分布损失下将学生反传 token 预算从 65536 降至 24576，并默认启用 `USE_CHUNKED_TOPK=true`、`CHUNKED_TOPK_CHUNK_SIZE=512`，以降低词表 logits 相关的峰值显存；显式环境变量仍优先。遇到 OOM 可进一步减小 `MAX_PROMPT_LENGTH` 与 `MAX_TOKEN_LEN_PER_GPU`，同时确保预算至少覆盖最大 prompt＋response 长度。`TRAIN_BATCH_SIZE` 控制全局样本数，不直接替代每卡的反传 token 预算。
 

@@ -85,8 +85,10 @@ class DistillationLossConfig(BaseConfig):
     # Four teacher-topk distribution objectives; forward KL uses EOPD top-k normalization.
     jsd_beta: float = 0.5
     entropy_gate_temperature: float = 1.0
+    # Legacy entropy_jsd gate settings; retained for configuration compatibility.
     entropy_gate_epsilon: float = 0.05
     entropy_gate_tail_cutoff: float = 0.2
+    # Shared by entropy_kl and entropy_jsd.
     entropy_kl_teacher_entropy_threshold: float = 0.8
     entropy_kl_coverage_deficit_scale: float = 0.3
     entropy_kl_teacher_mass_floor: float = 0.95
