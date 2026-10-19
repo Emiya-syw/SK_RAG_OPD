@@ -12,7 +12,7 @@ import sys
 
 SIGNATURES = {(2048, 28): 2, (2560, 36): 4, (4096, 36): 8}
 # token budget, rollout memory fraction, generation batch (per GPU)
-STUDENT = {2: (65536, '0.72', 16), 4: (49152, '0.65', 8), 8: (21505, '0.40', 4)}
+STUDENT = {2: (65536, '0.72', 16), 4: (49152, '0.65', 8), 8: (21505, '0.55', 8)}
 TEACHER = {2: ('0.60', 16), 4: ('0.65', 8), 8: ('0.50', 2)}
 DISTRIBUTION_LOSSES = {'forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd'}
 
@@ -71,9 +71,10 @@ def choose(env, student, teacher, devices):
         raise ValueError('TEACHER_NUM_REPLICAS * TEACHER_TP must equal teacher GPU count')
     # 2B throughput trial: sixteen rollout samples and eight update samples per student GPU.
     # 4B throughput trial: eight rollout samples and four update samples per student GPU.
+    # 8B throughput trial: four rollout samples and two update samples per student GPU.
     # Scale global batches with GPU count, keeping per-GPU memory budgets fixed.
-    batch = int(setting('TRAIN_BATCH_SIZE', trainer * {2: 16, 4: 8, 8: 1}[student]))
-    default_mini = trainer * {2: 8, 4: 4}[student] if student in (2, 4) else batch
+    batch = int(setting('TRAIN_BATCH_SIZE', trainer * {2: 16, 4: 8, 8: 4}[student]))
+    default_mini = trainer * {2: 8, 4: 4, 8: 2}[student]
     # An explicit training batch may not divide the preset mini-batch.
     if default_mini <= 0 or batch % default_mini:
         default_mini = batch
@@ -92,18 +93,22 @@ def choose(env, student, teacher, devices):
     if distribution_loss:
         setting('USE_CHUNKED_TOPK', 'true')
         setting('CHUNKED_TOPK_CHUNK_SIZE', 512)
+    teacher_memory, teacher_max_seqs = TEACHER[teacher]
+    if student == teacher == 8:
+        # The larger 8B rollout batch can keep more independent teacher replicas busy.
+        teacher_memory, teacher_max_seqs = '0.65', 4
     for key, value in {
         'MICRO_BATCH_SIZE': 1, 'USE_DYNAMIC_BSZ': 'true',
         'PARAM_OFFLOAD': 'false', 'OPTIMIZER_OFFLOAD': 'false',
         'ENABLE_GRADIENT_CHECKPOINTING': 'true',
         'ROLLOUT_GPU_MEMORY_UTILIZATION': rollout_memory,
-        'ROLLOUT_MAX_NUM_BATCHED_TOKENS': {2: 32768, 4: 16384, 8: 8192}[student],
+        'ROLLOUT_MAX_NUM_BATCHED_TOKENS': {2: 32768, 4: 16384, 8: 16384}[student],
         'ROLLOUT_MAX_NUM_SEQS': (
             max({2: 16, 4: 8}[student], (batch + trainer - 1) // trainer)
             if student in (2, 4) else max(8, batch)
         ),
-        'TEACHER_GPU_MEMORY_UTILIZATION': TEACHER[teacher][0],
-        'TEACHER_MAX_NUM_SEQS': TEACHER[teacher][1],
+        'TEACHER_GPU_MEMORY_UTILIZATION': teacher_memory,
+        'TEACHER_MAX_NUM_SEQS': teacher_max_seqs,
         'GENERATION_BATCH_SIZE': generation_batch,
     }.items():
         setting(key, value)

@@ -56,6 +56,27 @@ class PresetTest(unittest.TestCase):
             config = auto.choose({'TRAIN_BATCH_SIZE': '12'}, 2, 2, devices)
             self.assertEqual(config['PPO_MINI_BATCH_SIZE'], '12')
 
+    def test_8b_throughput_preset_and_overrides(self):
+        for count, batch, mini in ((4, 8, 4), (8, 16, 8)):
+            devices = [{'index': str(i)} for i in range(count)]
+            config = auto.choose({'DISTILLATION_LOSS_MODE': 'entropy_jsd'}, 8, 8, devices)
+            self.assertEqual(config['TRAIN_BATCH_SIZE'], str(batch))
+            self.assertEqual(config['PPO_MINI_BATCH_SIZE'], str(mini))
+            self.assertEqual(config['MAX_TOKEN_LEN_PER_GPU'], '21505')
+            self.assertEqual(config['ROLLOUT_GPU_MEMORY_UTILIZATION'], '0.55')
+            self.assertEqual(config['ROLLOUT_MAX_NUM_BATCHED_TOKENS'], '16384')
+            self.assertEqual(config['ROLLOUT_MAX_NUM_SEQS'], str(max(8, batch)))
+            self.assertEqual(config['GENERATION_BATCH_SIZE'], '8')
+            self.assertEqual(config['TEACHER_GPU_MEMORY_UTILIZATION'], '0.65')
+            self.assertEqual(config['TEACHER_MAX_NUM_SEQS'], '4')
+            self.assertEqual(config['USE_CHUNKED_TOPK'], 'true')
+            overrides = {'TRAIN_BATCH_SIZE': '4', 'PPO_MINI_BATCH_SIZE': '4',
+                         'ROLLOUT_GPU_MEMORY_UTILIZATION': '0.40',
+                         'TEACHER_GPU_MEMORY_UTILIZATION': '0.50'}
+            overridden = auto.choose(overrides, 8, 8, devices)
+            for key, value in overrides.items():
+                self.assertEqual(overridden[key], value)
+
     def test_distribution_losses_limit_backward_peak(self):
         devices = [{'index': str(i)} for i in range(4)]
         for mode in ('forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd'):
@@ -82,7 +103,8 @@ class PresetTest(unittest.TestCase):
                         self.assertEqual(int(config['TRAIN_BATCH_SIZE']) % (count // 2), 0)
                         self.assertGreaterEqual(int(config['MAX_TOKEN_LEN_PER_GPU']), 21504)
                         self.assertEqual(config['GENERATION_BATCH_SIZE'], str(auto.STUDENT[student][2]))
-                        self.assertEqual(config['TEACHER_GPU_MEMORY_UTILIZATION'], auto.TEACHER[teacher][0])
+                        expected_teacher_memory = '0.65' if student == teacher == 8 else auto.TEACHER[teacher][0]
+                        self.assertEqual(config['TEACHER_GPU_MEMORY_UTILIZATION'], expected_teacher_memory)
 
     def test_constraints_and_context(self):
         devices = [{'index': str(i)} for i in range(4)]
