@@ -372,6 +372,63 @@ class DistributionLossTests(unittest.TestCase):
             gradient = torch.autograd.grad(loss, x)[0]
             torch.testing.assert_close(gradient[0, [0, 2, 4]], torch.zeros_like(gradient[0, [0, 2, 4]]))
 
+    def test_fully_masked_padding_microbatch(self):
+        from tensordict import TensorDict
+        from verl.trainer.distillation.losses import distillation_loss
+        from verl.utils.metric import Metric
+
+        logits = torch.randn(1, 4, 8, requires_grad=True)
+        # The synthetic padding template fills teacher tensors with zeros.
+        teacher_log_probs = torch.zeros(1, 4, 3)
+        teacher_ids = torch.zeros(1, 4, 3, dtype=torch.long)
+        data = TensorDict({
+            'prompts': torch.ones(1, 3, dtype=torch.long),
+            'responses': torch.ones(1, 1, dtype=torch.long),
+            'attention_mask': torch.ones(1, 4, dtype=torch.long),
+            'response_mask': torch.zeros(1, 1),
+            # The global mini-batch contains valid tokens on other workers.
+            'dp_size': 4, 'batch_num_tokens': 3, 'global_batch_size': 8,
+        }, batch_size=[])
+        actor = SimpleNamespace(loss_agg_mode='token-mean', global_batch_info={}, loss_scale_factor=None)
+        for mode in ('forward_kl', 'jsd', 'entropy_jsd'):
+            with self.subTest(mode=mode):
+                raw = compute_distribution_from_logits(logits, teacher_log_probs, teacher_ids, config(mode))
+                output = {key: value.squeeze(0) for key, value in raw.items()}
+                output['overlap_count'] = torch.zeros(4)
+                output['overlap_token_advantage'] = torch.zeros(4)
+                loss, metrics = distillation_loss(
+                    actor, SimpleNamespace(distillation_loss=config(mode)), output, data,
+                )
+                self.assertEqual(loss.item(), 0.0)
+                self.assertEqual(metrics['distillation/overlap_ratio'], 0.0)
+                self.assertEqual(metrics['distillation/student_mass'], 0.0)
+                self.assertEqual(metrics['distillation/teacher_mass'], 0.0)
+                self.assertEqual(metrics['distillation/teacher_entropy'], 0.0)
+                for key in ('student_mass_min', 'teacher_mass_min', 'loss_min'):
+                    empty = metrics[f'distillation/{key}']
+                    self.assertIsInstance(empty, Metric)
+                    self.assertEqual(Metric.aggregate_dp([empty, Metric(empty.aggregation, .25)]), .25)
+                for key in ('student_mass_max', 'teacher_mass_max', 'loss_max'):
+                    empty = metrics[f'distillation/{key}']
+                    self.assertIsInstance(empty, Metric)
+                    self.assertEqual(Metric.aggregate_dp([empty, Metric(empty.aggregation, .25)]), .25)
+                gradient = torch.autograd.grad(loss, logits, retain_graph=True)[0]
+                torch.testing.assert_close(gradient, torch.zeros_like(gradient))
+
+        nested_data = TensorDict({
+            'prompts': torch.nested.nested_tensor([torch.ones(3, dtype=torch.long)], layout=torch.jagged),
+            'responses': torch.nested.nested_tensor([torch.ones(1, dtype=torch.long)], layout=torch.jagged),
+            'response_mask': torch.nested.nested_tensor([torch.zeros(1)], layout=torch.jagged),
+            'dp_size': 4, 'batch_num_tokens': 3, 'global_batch_size': 8,
+        }, batch_size=[])
+        raw = compute_distribution_from_logits(logits, teacher_log_probs, teacher_ids, config('entropy_jsd'))
+        output = {key: value.squeeze(0) for key, value in raw.items()}
+        loss, metrics = distillation_loss(
+            actor, SimpleNamespace(distillation_loss=config('entropy_jsd')), output, nested_data,
+        )
+        self.assertEqual(loss.item(), 0.0)
+        self.assertEqual(metrics['distillation/loss_min'].values, [float('inf')])
+
     def test_entropy_kl_reverse_uses_sampled_logprob_advantage(self):
         from verl.trainer.distillation.losses import distillation_loss
         from tensordict import TensorDict
