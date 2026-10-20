@@ -67,7 +67,7 @@ IMAGE_KEY="${IMAGE_KEY:-images}"
 # 是否返回多模态 processor 输入。视觉模型必须为 true。
 RETURN_MULTI_MODAL_INPUTS="${RETURN_MULTI_MODAL_INPUTS:-true}"
 # 是否打乱训练数据。可选：true/false。
-DATA_SHUFFLE="${DATA_SHUFFLE:-false}"
+DATA_SHUFFLE="${DATA_SHUFFLE:-true}"
 # 数据打乱与 rollout 随机种子。任意非负整数；固定值便于复现。
 SEED="${SEED:-42}"
 
@@ -176,8 +176,8 @@ ENTROPY_GATE_TAIL_CUTOFF="${ENTROPY_GATE_TAIL_CUTOFF:-0.2}"
 ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD="${ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD:-0.8}"
 ENTROPY_KL_COVERAGE_DEFICIT_SCALE="${ENTROPY_KL_COVERAGE_DEFICIT_SCALE:-0.3}"
 ENTROPY_KL_TEACHER_MASS_FLOOR="${ENTROPY_KL_TEACHER_MASS_FLOOR:-0.95}"
-# 仅 entropy_jsd：可选除以 beta*(1-beta)，默认不额外缩放。
-ENTROPY_JSD_NORMALIZE="${ENTROPY_JSD_NORMALIZE:-false}"
+# 仅 entropy_jsd：默认除以 beta*(1-beta)，减轻门控导致的损失尺度变化。
+ENTROPY_JSD_NORMALIZE="${ENTROPY_JSD_NORMALIZE:-true}"
 # 蒸馏 loss 权重。非负浮点数；与 task reward 联用时控制蒸馏占比。
 DISTILLATION_LOSS_COEF="${DISTILLATION_LOSS_COEF:-1.0}"
 # 是否叠加任务 reward。可选：false/true；本项目默认 zero_reward，开启前应替换 reward 函数。
