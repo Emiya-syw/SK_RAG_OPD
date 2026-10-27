@@ -158,7 +158,7 @@ ROLLOUT_ENABLE_PREFIX_CACHING="${ROLLOUT_ENABLE_PREFIX_CACHING:-true}"
 # --- OPD teacher 与蒸馏损失 --------------------------------------------------
 # 是否启用蒸馏。当前脚本必须为 true；false 会退化为无有效 reward 的训练。
 DISTILLATION_ENABLED="${DISTILLATION_ENABLED:-true}"
-# loss 类型：k3、rollout_mixture_k3、forward_kl_topk（旧版）、forward_kl、jsd、entropy_kl、entropy_jsd、k1（仅 PG）等。
+# loss 类型：k3、rollout_mixture_k3、forward_kl_topk（旧版）、forward_kl、jsd、entropy_kl、entropy_jsd、k3_jsd、k3_entropy_jsd、k1（仅 PG）等。
 DISTILLATION_LOSS_MODE="${DISTILLATION_LOSS_MODE:-k3}"
 # 损失使用教师前 DISTILLATION_TOPK 个 token；熵门控独立使用前 ENTROPY_TOPK 个。
 DISTILLATION_TOPK="${DISTILLATION_TOPK:-16}"
@@ -176,8 +176,11 @@ ENTROPY_GATE_TAIL_CUTOFF="${ENTROPY_GATE_TAIL_CUTOFF:-0.2}"
 ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD="${ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD:-0.8}"
 ENTROPY_KL_COVERAGE_DEFICIT_SCALE="${ENTROPY_KL_COVERAGE_DEFICIT_SCALE:-0.3}"
 ENTROPY_KL_TEACHER_MASS_FLOOR="${ENTROPY_KL_TEACHER_MASS_FLOOR:-0.95}"
-# 仅 entropy_jsd：默认除以 beta*(1-beta)，减轻门控导致的损失尺度变化。
+# entropy_jsd 及 k3_entropy_jsd 的 JSD 项：默认除以 beta*(1-beta)。
 ENTROPY_JSD_NORMALIZE="${ENTROPY_JSD_NORMALIZE:-true}"
+# 混合模式：K3 + lambda * JSD；k3_jsd 为固定 beta，k3_entropy_jsd 为熵门控。
+# 有限非负数；默认 1，设为 0 可关闭辅助项；纯蒸馏时同样生效。
+K3_JSD_LAMBDA="${K3_JSD_LAMBDA:-1.0}"
 # 蒸馏 loss 权重。非负浮点数；与 task reward 联用时控制蒸馏占比。
 DISTILLATION_LOSS_COEF="${DISTILLATION_LOSS_COEF:-1.0}"
 # 是否叠加任务 reward。可选：false/true；本项目默认 zero_reward，开启前应替换 reward 函数。
@@ -345,7 +348,7 @@ render_training_config() {
     DISTILLATION_ENABLED DISTILLATION_LOSS_MODE DISTILLATION_TOPK ENTROPY_TOPK \
     JSD_BETA ENTROPY_GATE_TEMPERATURE ENTROPY_GATE_EPSILON ENTROPY_GATE_TAIL_CUTOFF ENTROPY_JSD_NORMALIZE \
     ENTROPY_KL_TEACHER_ENTROPY_THRESHOLD ENTROPY_KL_COVERAGE_DEFICIT_SCALE ENTROPY_KL_TEACHER_MASS_FLOOR \
-    DISTILLATION_LOSS_COEF USE_TASK_REWARDS USE_POLICY_GRADIENT \
+    DISTILLATION_LOSS_COEF K3_JSD_LAMBDA USE_TASK_REWARDS USE_POLICY_GRADIENT \
     ROLLOUT_MIXTURE_ENABLED ROLLOUT_MIXTURE_OFF_POLICY_RATIO ROLLOUT_MIXTURE_FIELD \
     LOSS_MAX_CLAMP \
     LOG_PROB_MIN_CLAMP USE_CHUNKED_TOPK CHUNKED_TOPK_CHUNK_SIZE \
@@ -597,6 +600,7 @@ train_status=0
   "distillation.distillation_loss.entropy_kl_coverage_deficit_scale=${ENTROPY_KL_COVERAGE_DEFICIT_SCALE}" \
   "distillation.distillation_loss.entropy_kl_teacher_mass_floor=${ENTROPY_KL_TEACHER_MASS_FLOOR}" \
   "distillation.distillation_loss.entropy_jsd_normalize=${ENTROPY_JSD_NORMALIZE}" \
+  "distillation.distillation_loss.k3_jsd_lambda=${K3_JSD_LAMBDA}" \
   "distillation.distillation_loss.distillation_loss_coef=${DISTILLATION_LOSS_COEF}" \
   "distillation.distillation_loss.use_task_rewards=${USE_TASK_REWARDS}" \
   "distillation.distillation_loss.use_policy_gradient=${USE_POLICY_GRADIENT}" \

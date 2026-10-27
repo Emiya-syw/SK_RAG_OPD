@@ -79,7 +79,7 @@ class PresetTest(unittest.TestCase):
 
     def test_distribution_losses_limit_backward_peak(self):
         devices = [{'index': str(i)} for i in range(4)]
-        for mode in ('forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd'):
+        for mode in ('forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd', 'k3_jsd', 'k3_entropy_jsd'):
             with self.subTest(mode=mode):
                 config = auto.choose({'DISTILLATION_LOSS_MODE': mode}, 2, 2, devices)
                 self.assertEqual(config['MAX_TOKEN_LEN_PER_GPU'], '24576')

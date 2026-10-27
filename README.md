@@ -205,9 +205,38 @@ DISTILLATION_LOSS_MODE=jsd JSD_BETA=0.5 USE_POLICY_GRADIENT=false \
 
 默认的 `k3` 反向 KL 路径只使用 rollout 实际采样 token 的师生 logprob，是单样本估计，并未请求完整词表概率。四种分布损失若要改成精确的完整词表版本，需要 teacher 返回每个回答位置的全量 logits；当前 vLLM teacher 接口只提供 prompt logprob 的 top-k 输出。
 
-新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。对 `entropy_kl`，此开关关闭通用蒸馏策略梯度路径，但其反向分量会在内部单独使用 EOPD 式标准 PPO clipping，不使用通用 `vanilla` PPO 的 dual-clip。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0。两种熵模式共用教师熵阈值、覆盖缺口尺度和教师 top-k 质量下限，默认分别为 0.8、0.3、0.95。`ENTROPY_GATE_EPSILON` 与 `ENTROPY_GATE_TAIL_CUTOFF` 仅保留旧配置兼容性，不再参与系数计算。`ENTROPY_JSD_NORMALIZE=true` 仅对 `entropy_jsd` 额外除以 `β(1−β)`，会改变损失尺度，默认关闭；`β=1` 时损失为 0，归一化分母以 `1e-12` 保底。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`；JSD 对概率取对数时采用 `1e-12` 下限，前向 KL 的学生原始概率不采用该下限。`LOSS_MAX_CLAMP` 仍限制直接反传的分布项（默认 10，设为 `null` 可关闭）；`entropy_kl` 的反向项使用 PPO 概率比 clipping，不应用这个损失截断。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `topk`、`entropy_topk`、`jsd_beta`、`entropy_gate_temperature`、`entropy_kl_teacher_entropy_threshold`、`entropy_kl_coverage_deficit_scale`、`entropy_kl_teacher_mass_floor`、`entropy_jsd_normalize`。
+新模式使用本仓库 `verl-runtime` 的 FSDP eager logits 路径，要求 `USE_POLICY_GRADIENT=false`，不支持 Megatron 或 fused loss kernels。对 `entropy_kl`，此开关关闭通用蒸馏策略梯度路径，但其反向分量会在内部单独使用 EOPD 式标准 PPO clipping，不使用通用 `vanilla` PPO 的 dual-clip。`JSD_BETA` 默认 0.5 且须在 `(0,1)` 内；`ENTROPY_GATE_TEMPERATURE` 默认 1.0 且须大于 0。两种熵模式共用教师熵阈值、覆盖缺口尺度和教师 top-k 质量下限，默认分别为 0.8、0.3、0.95。`ENTROPY_GATE_EPSILON` 与 `ENTROPY_GATE_TAIL_CUTOFF` 仅保留旧配置兼容性，不再参与系数计算。`ENTROPY_JSD_NORMALIZE=true` 对 `entropy_jsd`（以及混合模式中的该分量）额外除以 `β(1−β)`，会改变损失尺度；启动脚本默认开启，Python/Hydra 底层默认关闭；`β=1` 时损失为 0，归一化分母以 `1e-12` 保底。新模式不使用旧的 `LOG_PROB_MIN_CLAMP`；JSD 对概率取对数时采用 `1e-12` 下限，前向 KL 的学生原始概率不采用该下限。`LOSS_MAX_CLAMP` 仍限制直接反传的分布项（默认 10，设为 `null` 可关闭）；`entropy_kl` 的反向项使用 PPO 概率比 clipping，不应用这个损失截断。对应 Hydra 配置均位于 `distillation.distillation_loss` 下，名称为 `topk`、`entropy_topk`、`jsd_beta`、`entropy_gate_temperature`、`entropy_kl_teacher_entropy_threshold`、`entropy_kl_coverage_deficit_scale`、`entropy_kl_teacher_mass_floor`、`entropy_jsd_normalize`。
 
-`train_eval_pipeline.sh` 的 2B 自动预设在四种分布损失下将学生反传 token 预算从 65536 降至 24576，并默认启用 `USE_CHUNKED_TOPK=true`、`CHUNKED_TOPK_CHUNK_SIZE=512`，以降低词表 logits 相关的峰值显存；显式环境变量仍优先。遇到 OOM 可进一步减小 `MAX_PROMPT_LENGTH` 与 `MAX_TOKEN_LEN_PER_GPU`，同时确保预算至少覆盖最大 prompt＋response 长度。`TRAIN_BATCH_SIZE` 控制全局样本数，不直接替代每卡的反传 token 预算。
+`train_eval_pipeline.sh` 的 2B 自动预设在分布损失及 K3＋JSD 混合模式下将学生反传 token 预算从 65536 降至 24576，并默认启用 `USE_CHUNKED_TOPK=true`、`CHUNKED_TOPK_CHUNK_SIZE=512`，以降低词表 logits 相关的峰值显存；显式环境变量仍优先。遇到 OOM 可进一步减小 `MAX_PROMPT_LENGTH` 与 `MAX_TOKEN_LEN_PER_GPU`，同时确保预算至少覆盖最大 prompt＋response 长度。`TRAIN_BATCH_SIZE` 控制全局样本数，不直接替代每卡的反传 token 预算。
+
+可选 K3＋JSD 混合模式（现有默认仍为 `k3`）：
+
+| `DISTILLATION_LOSS_MODE` | 混合目标 |
+| --- | --- |
+| `k3_jsd` | `K3 + λ × JSD`；JSD 使用固定 `JSD_BETA`，默认 0.5，不做 entropy-JSD 归一化 |
+| `k3_entropy_jsd` | `K3 + λ × entropy_JSD`；复用原熵门控及 `ENTROPY_JSD_NORMALIZE` |
+
+`K3_JSD_LAMBDA` 对应 Hydra 的 `distillation.distillation_loss.k3_jsd_lambda`，默认 **1.0**，要求有限且非负。设为 0 时混合损失及梯度退回 K3（仍会请求 top-k 数据），可设为 0.1、2 等调整 JSD 辅助项。该系数在 `USE_TASK_REWARDS=false` 时也生效，与只在任务奖励联用时生效的 `DISTILLATION_LOSS_COEF` 不同。
+
+在现有训练命令中设置以下变量即可；模型、teacher、stage 1 初始化和数据变量沿用原配置：
+
+```bash
+DISTILLATION_LOSS_MODE=k3_jsd \
+K3_JSD_LAMBDA=1.0 \
+USE_POLICY_GRADIENT=false \
+bash scripts/train_eval_pipeline.sh
+
+# 熵门控 JSD 辅助项（启动脚本默认开启归一化）：
+DISTILLATION_LOSS_MODE=k3_entropy_jsd \
+K3_JSD_LAMBDA=1.0 \
+ENTROPY_JSD_NORMALIZE=true \
+USE_POLICY_GRADIENT=false \
+bash scripts/train_eval_pipeline.sh
+```
+
+K3 使用实际采样 token 的师生 logprob；即使 token 不在教师 top-k 中，也单独保留其教师评分，不能以尾桶概率替代。K3 沿用现有 `k3` 实现（log-ratio 裁剪至 ±20，K3 内部上限 10）。`LOSS_MAX_CLAMP` 分别裁剪 K3 和 JSD 分量，然后计算 `K3 + λ×JSD`，最后按 response mask 聚合；不再对混合总和裁剪，因此总损失可能超过该阈值。两种混合模式均直接反传，不使用 `entropy_kl` 的内部 PPO 反向项；要求 FSDP eager logits 路径。
+
+新增日志 `distillation/k3_component`、`distillation/jsd_component`、`distillation/weighted_jsd_component`、`distillation/jsd_lambda`、`distillation/jsd_clipfrac`，分量均按有效 response token 统计；实际训练日志通常带 `actor/` 前缀。`jsd_clipfrac` 是加权前 JSD 分量超过 `LOSS_MAX_CLAMP` 的比例。
 
 训练默认使用 `TRAINER_LOGGER=['console','file']`，将每步所有 veRL 指标保存到 `outputs/<EXPERIMENT_NAME>/training_metrics.jsonl`；训练结束（包括报错退出）时自动生成 `training_curves.svg` 和对应的 `training_curves.csv`。曲线包括蒸馏损失、师生熵、混合权重、top-k 概率质量、回答长度、梯度范数、rollout 一致性和耗时；JSONL 保留全部指标。可在训练中读取 JSONL，或随时运行 `python3 scripts/plot_train_metrics.py outputs/<EXPERIMENT_NAME>/training_metrics.jsonl` 重画。恢复训练时指标文件追加写入，并以最新的同一步记录绘图；全新训练则覆盖旧指标。用 `TRAIN_METRICS_FILE`、`TRAIN_METRICS_PLOT_FILE` 更改路径，用 `PLOT_TRAIN_METRICS=false` 关闭自动绘图。显式覆盖 `TRAINER_LOGGER` 时若不包含 `file`，则不会保存本地指标。
 

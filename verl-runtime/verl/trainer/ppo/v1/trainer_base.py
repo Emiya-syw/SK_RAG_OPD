@@ -48,6 +48,7 @@ from verl.single_controller.ray import (
     create_colocated_worker_cls,
 )
 from verl.trainer.distillation import is_distillation_enabled
+from verl.trainer.distillation.distribution_losses import SAMPLED_TOPK_LOSS_MODES
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.checkpoint_callback import build_checkpoint_callback
 from verl.trainer.ppo.core_algos import agg_loss
@@ -1785,7 +1786,7 @@ class PPOTrainer(ABC):
                 distillation_use_topk
                 and not distillation_loss_cfg.use_task_rewards
                 and not distillation_loss_cfg.use_policy_gradient
-                and distillation_loss_cfg.loss_mode != "entropy_kl"
+                and distillation_loss_cfg.loss_mode not in SAMPLED_TOPK_LOSS_MODES
             )
         extra_info = {
             "calculate_entropy": calculate_entropy,

@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import torch
 
 from verl.trainer.distillation.distribution_losses import (
-    DISTRIBUTION_LOSS_MODES, compute_distribution_from_logits, distribution_loss,
+    DISTRIBUTION_LOSS_MODES, ENTROPY_GATE_LOSS_MODES, SAMPLED_TOPK_LOSS_MODES,
+    compute_distribution_from_logits, distribution_loss,
 )
 from verl.workers.config.distillation import DistillationLossConfig
 
@@ -39,7 +40,7 @@ class DistributionLossTests(unittest.TestCase):
         student = torch.tensor([[[2., 1., 0., -1., -2.]]], requires_grad=True)
         teacher = torch.tensor([[[1., .5, 0., -.5, -2.]]]).log_softmax(-1)
         student_logits = student.detach().log_softmax(-1)
-        for mode in ('entropy_kl', 'entropy_jsd'):
+        for mode in ENTROPY_GATE_LOSS_MODES:
             with self.subTest(mode=mode):
                 c = config(mode, topk=2, entropy_topk=4)
                 out = compute_distribution_from_logits(
@@ -159,11 +160,13 @@ class DistributionLossTests(unittest.TestCase):
                 deficit = ((1 - coverage) / .3).clamp(0, 1)
                 entropy_signal = torch.sigmoid((ht - .8) / 1.)
                 alpha = (entropy_signal * deficit).detach()
-                beta = 1 - alpha if mode == 'entropy_jsd' else torch.full_like(alpha, .5)
+                beta = 1 - alpha if mode in ('entropy_jsd', 'k3_entropy_jsd') else torch.full_like(alpha, .5)
                 m = beta[:, None] * t + (1-beta[:, None]) * s
                 expected = {'forward_kl': kl(t, s), 'entropy_kl': alpha*kl(t, s),
                             'jsd': beta*kl(t, m)+(1-beta)*kl(s, m),
-                            'entropy_jsd': beta*kl(t, m)+(1-beta)*kl(s, m)}[mode]
+                            'entropy_jsd': beta*kl(t, m)+(1-beta)*kl(s, m),
+                            'k3_jsd': beta*kl(t, m)+(1-beta)*kl(s, m),
+                            'k3_entropy_jsd': beta*kl(t, m)+(1-beta)*kl(s, m)}[mode]
                 torch.testing.assert_close(out['distillation_losses'], expected)
                 got = torch.autograd.grad(out['distillation_losses'].sum(), (x, y), allow_unused=True, retain_graph=True)
                 want = torch.autograd.grad(expected.sum(), x)[0]
@@ -196,7 +199,7 @@ class DistributionLossTests(unittest.TestCase):
         for mode in DISTRIBUTION_LOSS_MODES:
             c = config(mode)
             out = loss_for_test(s[:, :2].log(), t[:, :2].log(), mode)
-            if mode in ('entropy_kl', 'entropy_jsd'):
+            if mode in ENTROPY_GATE_LOSS_MODES:
                 torch.testing.assert_close(out['student_entropy'], bucket_entropy(s[:, :2].log())[0])
                 torch.testing.assert_close(out['teacher_entropy'], bucket_entropy(t[:, :2].log())[0])
             else:
@@ -293,7 +296,7 @@ class DistributionLossTests(unittest.TestCase):
                            {'entropy_kl_teacher_mass_floor': 1.}):
                 with self.assertRaises(ValueError):
                     config(mode, **kwargs)
-            if mode in ('entropy_kl', 'entropy_jsd'):
+            if mode in ENTROPY_GATE_LOSS_MODES:
                 with self.assertRaises(ValueError):
                     config(mode, entropy_topk=0)
             with self.assertRaises(ValueError):
@@ -311,7 +314,7 @@ class DistributionLossTests(unittest.TestCase):
         for mode in DISTRIBUTION_LOSS_MODES:
             c = config(mode, topk=3, entropy_topk=3)
             mode_data = data
-            if mode == 'entropy_kl':
+            if mode in SAMPLED_TOPK_LOSS_MODES:
                 sampled_logs = torch.randn(5).log_softmax(0)
                 expanded_logs = torch.cat((logs[0], sampled_logs[:, None]), dim=-1)
                 expanded_ids = torch.cat((ids[0], torch.zeros(5, 1, dtype=ids.dtype)), dim=-1)
@@ -331,11 +334,11 @@ class DistributionLossTests(unittest.TestCase):
         x = torch.tensor([[[2., 1., 0., -1., -2.]]], requires_grad=True)
         teacher = torch.tensor([[[1., .5, 0., -.5, -2.]]]).log_softmax(-1)
         logs, ids = teacher.topk(4)
-        for mode in ('entropy_kl', 'entropy_jsd'):
+        for mode in ENTROPY_GATE_LOSS_MODES:
             with self.subTest(mode=mode):
                 c = config(mode, topk=2, entropy_topk=4)
                 row_logs, row_ids = logs[0], ids[0]
-                if mode == 'entropy_kl':
+                if mode in SAMPLED_TOPK_LOSS_MODES:
                     row_logs = torch.cat((row_logs, torch.tensor([[-1.]])), dim=-1)
                     row_ids = torch.cat((row_ids, torch.zeros(1, 1, dtype=row_ids.dtype)), dim=-1)
                 data = {

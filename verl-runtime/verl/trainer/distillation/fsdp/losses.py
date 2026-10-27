@@ -16,7 +16,12 @@
 import torch
 import torch.nn.functional as F
 
-from verl.trainer.distillation.distribution_losses import DISTRIBUTION_LOSS_MODES, compute_distribution_from_logits
+from verl.trainer.distillation.distribution_losses import (
+    DISTRIBUTION_LOSS_MODES,
+    ENTROPY_GATE_LOSS_MODES,
+    SAMPLED_TOPK_LOSS_MODES,
+    compute_distribution_from_logits,
+)
 from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     slice_input_tensor,
@@ -116,13 +121,13 @@ def compute_forward_kl_topk(
     # for trade-offs and benchmark numbers.
     loss_config: DistillationLossConfig = config.distillation_loss
     if loss_config.loss_mode in DISTRIBUTION_LOSS_MODES:
-        if loss_config.loss_mode == "entropy_kl":
+        if loss_config.loss_mode in SAMPLED_TOPK_LOSS_MODES:
             # The final column carries the teacher probability of the sampled
-            # token for the sampled reverse term; it is not part of teacher top-k.
+            # token for sampled K3/PPO; it is not part of teacher top-k.
             teacher_topk_log_probs = teacher_topk_log_probs[..., :-1]
             teacher_topk_ids = teacher_topk_ids[..., :-1]
         teacher_gate_log_probs = None
-        if loss_config.loss_mode in ("entropy_kl", "entropy_jsd"):
+        if loss_config.loss_mode in ENTROPY_GATE_LOSS_MODES:
             if teacher_topk_log_probs.shape[-1] < max(loss_config.topk, loss_config.entropy_topk):
                 raise ValueError("Teacher returned fewer logprobs than topk or entropy_topk.")
             teacher_gate_log_probs = teacher_topk_log_probs[..., :loss_config.entropy_topk]

@@ -17,18 +17,23 @@ import math
 import torch
 
 
-DISTRIBUTION_LOSS_MODES = ("forward_kl", "jsd", "entropy_kl", "entropy_jsd")
+K3_JSD_LOSS_MODES = ("k3_jsd", "k3_entropy_jsd")
+ENTROPY_GATE_LOSS_MODES = ("entropy_kl", "entropy_jsd", "k3_entropy_jsd")
+# These top-k objectives also need the teacher's probability of the rollout token.
+SAMPLED_TOPK_LOSS_MODES = ("entropy_kl", *K3_JSD_LOSS_MODES)
+DISTRIBUTION_LOSS_MODES = ("forward_kl", "jsd", "entropy_kl", "entropy_jsd", *K3_JSD_LOSS_MODES)
 
 
 def validate_distribution_settings(
     mode, topk, beta, gate_temperature, gate_epsilon, use_policy_gradient, tail_cutoff=0.2, entropy_topk=64,
     teacher_entropy_threshold=0.8, coverage_deficit_scale=0.3, teacher_mass_floor=0.95,
+    k3_jsd_lambda=1.0,
 ):
     if mode not in DISTRIBUTION_LOSS_MODES:
         return
     if not isinstance(topk, int) or isinstance(topk, bool) or topk < 1:
         raise ValueError("Distribution losses require topk >= 1.")
-    if mode in ("entropy_kl", "entropy_jsd") and (
+    if mode in ENTROPY_GATE_LOSS_MODES and (
         not isinstance(entropy_topk, int) or isinstance(entropy_topk, bool) or entropy_topk < 1
     ):
         raise ValueError("Entropy-gated losses require entropy_topk >= 1.")
@@ -46,6 +51,8 @@ def validate_distribution_settings(
         raise ValueError("entropy_kl_coverage_deficit_scale must be finite and in (0, 1].")
     if not math.isfinite(teacher_mass_floor) or not 0 < teacher_mass_floor < 1:
         raise ValueError("entropy_kl_teacher_mass_floor must be finite and in (0, 1).")
+    if mode in K3_JSD_LOSS_MODES and (not math.isfinite(k3_jsd_lambda) or k3_jsd_lambda < 0):
+        raise ValueError("k3_jsd_lambda must be finite and >= 0.")
     if use_policy_gradient:
         raise ValueError(
             "Distribution losses require use_policy_gradient=False "
@@ -97,6 +104,9 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
     mode = config.loss_mode
     if mode not in DISTRIBUTION_LOSS_MODES:
         raise ValueError(f"Unknown distribution loss: {mode}")
+    # Only compute the JSD component here. The sampled K3 component and lambda
+    # are applied in distillation_loss, where sampled-token logprobs are available.
+    mode = {"k3_jsd": "jsd", "k3_entropy_jsd": "entropy_jsd"}.get(mode, mode)
     s, log_s, student_mass = _distribution(student_log_probs)
     t, log_t, teacher_mass = _distribution(teacher_log_probs.detach())
     hs = -(s * log_s).sum(-1).detach()
@@ -197,7 +207,7 @@ def compute_distribution_from_logits(student_logits, teacher_log_probs, teacher_
     vocab_size = student_logits.shape[-1]
     if teacher_ids.shape[-1] > vocab_size:
         raise ValueError("topk cannot exceed the student vocabulary size.")
-    need_gate_entropy = config.loss_mode in ("entropy_kl", "entropy_jsd")
+    need_gate_entropy = config.loss_mode in ENTROPY_GATE_LOSS_MODES
     gate_topk = teacher_gate_log_probs.shape[-1] if teacher_gate_log_probs is not None else teacher_ids.shape[-1]
     if need_gate_entropy and gate_topk > vocab_size:
         raise ValueError("entropy_topk cannot exceed the student vocabulary size.")

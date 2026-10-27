@@ -41,6 +41,8 @@ distillation_loss:
   entropy_kl_teacher_mass_floor: 0.95
   # Adaptive JSD only: divide by beta*(1-beta). False preserves standard scale.
   entropy_jsd_normalize: false
+  # k3_jsd / k3_entropy_jsd: L = K3 + lambda * JSD. Finite, nonnegative.
+  k3_jsd_lambda: 1.0
 
   # Whether to include task rewards alongside distillation loss.
   use_task_rewards: true

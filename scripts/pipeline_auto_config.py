@@ -14,7 +14,7 @@ SIGNATURES = {(2048, 28): 2, (2560, 36): 4, (4096, 36): 8}
 # token budget, rollout memory fraction, generation batch (per GPU)
 STUDENT = {2: (65536, '0.72', 16), 4: (49152, '0.65', 8), 8: (21505, '0.55', 8)}
 TEACHER = {2: ('0.60', 16), 4: ('0.65', 8), 8: ('0.50', 2)}
-DISTRIBUTION_LOSSES = {'forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd'}
+DISTRIBUTION_LOSSES = {'forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd', 'k3_jsd', 'k3_entropy_jsd'}
 
 
 def model_size(path):

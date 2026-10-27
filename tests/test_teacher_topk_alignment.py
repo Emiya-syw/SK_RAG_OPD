@@ -110,6 +110,25 @@ class TeacherTopkAlignmentTests(unittest.TestCase):
         self.assertEqual(logs.shape, (4, 2))
         self.assertIsNone(entropy)
 
+    def test_k3_jsd_modes_keep_sampled_score_and_independent_entropy_support(self):
+        for mode, width in [('k3_jsd', 2), ('k3_entropy_jsd', 4)]:
+            with self.subTest(mode=mode):
+                client = FakeClient([list(range(101, 101+width))] * 4,
+                                    [11, 14, 21, 22], [-.1, -.2, -4., 0.])
+                ids, logs, entropy = asyncio.run(manager(client, mode=mode, entropy_topk=4)
+                    .compute_teacher_logprobs_single([11, 12, 13, 14, 21, 22], 2,
+                                                     multi_modal_data={'images': ['image']}))
+                self.assertEqual(client.last_request['sampling_params']['prompt_logprobs'], width)
+                self.assertEqual(ids.shape, (6, width+1))
+                self.assertEqual(logs.shape, ids.shape)
+                self.assertAlmostEqual(logs[-3, -1].item(), -.2)
+                self.assertAlmostEqual(logs[-2, -1].item(), -4.)
+                self.assertEqual(logs[:2, -1].tolist(), [0., 0.])
+                self.assertIsNone(entropy)
+                with self.assertRaisesRegex(ValueError, 'requires the teacher logprob'):
+                    asyncio.run(manager(FakeClient([[1, 2]] * 4), mode=mode)
+                        .compute_teacher_logprobs_single([11, 14, 21, 22], 2))
+
     def test_response_mismatch_fails(self):
         with self.assertRaisesRegex(ValueError, 'response-token suffix differs'):
             score(FakeClient([[1, 2]] * 4, [11, 14, 21, 99]), [11, 12, 13, 14, 21, 22])

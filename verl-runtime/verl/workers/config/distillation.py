@@ -93,6 +93,8 @@ class DistillationLossConfig(BaseConfig):
     entropy_kl_coverage_deficit_scale: float = 0.3
     entropy_kl_teacher_mass_floor: float = 0.95
     entropy_jsd_normalize: bool = False
+    # K3 + lambda * JSD; applies even in pure distillation without task rewards.
+    k3_jsd_lambda: float = 1.0
 
     use_policy_gradient: bool = True
     policy_loss_mode: str = "vanilla"
@@ -122,6 +124,7 @@ class DistillationLossConfig(BaseConfig):
             self.entropy_gate_epsilon, self.use_policy_gradient, self.entropy_gate_tail_cutoff,
             self.entropy_topk, self.entropy_kl_teacher_entropy_threshold,
             self.entropy_kl_coverage_deficit_scale, self.entropy_kl_teacher_mass_floor,
+            self.k3_jsd_lambda,
         )
 
         if self.policy_loss_mode != "vanilla":
@@ -320,13 +323,15 @@ class DistillationConfig(BaseConfig):
                 "(use_policy_gradient=False). Golden/off-policy responses do not have true rollout logprobs."
             )
 
+        from verl.trainer.distillation.distribution_losses import ENTROPY_GATE_LOSS_MODES
+
         self.teacher_models = self._resolve_teacher_models()
         teacher_world_size_sum = 0
         for teacher_model in self.teacher_models.values():
             teacher_model.validate_and_prepare_for_distillation(
                 use_topk=self.distillation_loss.loss_settings.use_topk,
                 topk=(max(self.distillation_loss.topk, self.distillation_loss.entropy_topk)
-                      if self.distillation_loss.loss_mode in ("entropy_kl", "entropy_jsd")
+                      if self.distillation_loss.loss_mode in ENTROPY_GATE_LOSS_MODES
                       else self.distillation_loss.topk),
             )
             teacher_world_size_sum += teacher_model.world_size

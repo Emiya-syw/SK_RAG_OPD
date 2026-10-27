@@ -19,7 +19,7 @@ import torch
 from tensordict import TensorDict
 
 from verl.base_config import BaseConfig
-from verl.trainer.distillation.distribution_losses import DISTRIBUTION_LOSS_MODES
+from verl.trainer.distillation.distribution_losses import DISTRIBUTION_LOSS_MODES, K3_JSD_LOSS_MODES
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.metric import AggregationType, Metric
 from verl.workers.config import ActorConfig, DistillationConfig, DistillationLossConfig
@@ -200,9 +200,9 @@ def distillation_ppo_loss(
         distillation_config: Distillation configuration.
         model_output: Model output, including log_probs, entropy.
         data: Micro input batch, contains
-          - teacher_logprobs: (bsz, seqlen, topk), or topk+1 for entropy_kl
+          - teacher_logprobs: (bsz, seqlen, topk), or topk+1 for sampled/top-k hybrid modes
             (last column: scored student's sampled token)
-          - teacher_ids: matching shape; last entropy_kl ID is a placeholder
+          - teacher_ids: matching shape; final sampled-score ID is a placeholder
         student_logits: (bsz, seqlen/cp_size, vocab_size/tp_size).
         data_format: "thd" or "bshd", models not support THD format, e.g GPT-OSS, Qwen3.5
 
@@ -263,10 +263,35 @@ def distillation_loss(
     response_mask = data["response_mask"]
     loss_agg_mode = config.loss_agg_mode
 
+    if loss_config.loss_mode in K3_JSD_LOSS_MODES:
+        # Preserve the standalone K3 calculation, including its internal clamp.
+        # The final teacher column is the sampled-token score, NOT a tail bucket.
+        student_sampled = no_padding_2_padding(model_output["log_probs"], data)
+        teacher_sampled = no_padding_2_padding(data["teacher_logprobs"], data)[..., -1].detach()
+        if student_sampled.shape != distillation_losses.shape or teacher_sampled.shape != student_sampled.shape:
+            raise ValueError("K3/JSD sampled logprobs must match the per-token distribution loss shape.")
+        k3_losses = kl_penalty(student_sampled, teacher_sampled, "k3")
+        jsd_losses = distillation_losses
+        mask = response_mask.to_padded_tensor(False).bool() if response_mask.is_nested else response_mask.bool()
+        has_response = bool(mask.any())
+        cap = loss_config.loss_max_clamp
+        clipfrac = (jsd_losses[mask] > cap).float().mean().item() if cap is not None and has_response else 0.0
+        if cap is not None:
+            k3_losses = k3_losses.clamp(min=-cap, max=cap)
+            jsd_losses = jsd_losses.clamp(min=-cap, max=cap)
+        # Weight AFTER clipping each component. A large auxiliary coefficient
+        # must not saturate the combined loss and suppress the K3 gradient.
+        weighted_jsd = loss_config.k3_jsd_lambda * jsd_losses
+        distillation_losses = k3_losses + weighted_jsd
+        for name, values in (("k3_component", k3_losses), ("jsd_component", jsd_losses),
+                             ("weighted_jsd_component", weighted_jsd)):
+            distillation_metrics[f"distillation/{name}"] = values[mask].detach().mean().item() if has_response else 0.0
+        distillation_metrics["distillation/jsd_lambda"] = loss_config.k3_jsd_lambda
+        distillation_metrics["distillation/jsd_clipfrac"] = clipfrac
     distillation_metrics.update(
         compute_distillation_loss_range(distillation_losses=distillation_losses, response_mask=response_mask)
     )
-    if loss_config.loss_max_clamp is not None:
+    if loss_config.loss_max_clamp is not None and loss_config.loss_mode not in K3_JSD_LOSS_MODES:
         # clamping min is for k1 loss which can be negative
         distillation_losses = distillation_losses.clamp(min=-loss_config.loss_max_clamp, max=loss_config.loss_max_clamp)
 

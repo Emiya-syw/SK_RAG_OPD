@@ -20,6 +20,7 @@ import torch
 from omegaconf import DictConfig
 from torch.nn import functional as F
 
+from verl.trainer.distillation.distribution_losses import ENTROPY_GATE_LOSS_MODES, SAMPLED_TOPK_LOSS_MODES
 from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import (
     DistillationConfig,
@@ -49,7 +50,7 @@ def _get_teacher_sampling_params(
             teacher_model_config.inference.temperature,
         )
     num_logprobs = distillation_loss_config.topk if distillation_loss_config.loss_settings.use_topk else 0
-    if distillation_loss_config.loss_mode in ("entropy_kl", "entropy_jsd"):
+    if distillation_loss_config.loss_mode in ENTROPY_GATE_LOSS_MODES:
         num_logprobs = max(num_logprobs, distillation_loss_config.entropy_topk)
     return {
         "max_tokens": 1,
@@ -152,10 +153,10 @@ class AsyncTeacherLLMServerManager:
         # Entropy-gated losses estimate entropy from top-k logprobs and the
         # remaining probability mass in the actor loss. No full-vocab teacher
         # entropy transfer is needed.
-        if loss_mode == "entropy_kl":
+        if loss_mode in SAMPLED_TOPK_LOSS_MODES:
             sampled = teacher_output.extra_fields.get("prompt_sampled_logprobs")
             if sampled is None:
-                raise ValueError("entropy_kl requires the teacher logprob of each sampled token.")
+                raise ValueError(f"{loss_mode} requires the teacher logprob of each sampled token.")
             sampled_logprobs = torch.tensor(sampled, dtype=teacher_logprobs.dtype)
             if sampled_logprobs.shape != (teacher_ids.shape[0],):
                 raise ValueError("Teacher sampled-token logprobs are not aligned with top-k rows.")
