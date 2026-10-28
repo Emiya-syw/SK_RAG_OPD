@@ -6,7 +6,8 @@ project_root="$(pwd)"
 # Always load the vendored runtime from this repository, even if an older
 # editable veRL installation (for example /home/sunyw/verl-runtime) exists in
 # the active Conda environment.
-export PYTHONPATH="${project_root}/verl-runtime${PYTHONPATH:+:${PYTHONPATH}}"
+# Ray workers also need the shared project adapter-compatibility helpers.
+export PYTHONPATH="${project_root}/verl-runtime:${project_root}${PYTHONPATH:+:${PYTHONPATH}}"
 
 train_file="${1:?usage: scripts/run_opd.sh VERL_DATASET [OUTPUT_DIR] [HYDRA_OVERRIDES...]}"
 output_dir="${2:-outputs/opd}"

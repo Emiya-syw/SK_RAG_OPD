@@ -344,7 +344,19 @@ class FSDPEngine(BaseEngine):
             # Copy adapter to local if needed
             local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.model_config.use_shm)
 
-            module = PeftModel.from_pretrained(module, local_adapter_path, is_trainable=True)
+            adapter_kwargs = {}
+            if getattr(module.config, "model_type", None) == "qwen2_5_vl":
+                # Older exports used numeric leaf targets such as "0", which
+                # also match whole vision blocks. Recover exact paths on load,
+                # just as evaluation does, without rewriting the checkpoint.
+                from opd_rag.lora import precise_adapter_config
+
+                adapter_config = precise_adapter_config(module, local_adapter_path)
+                if adapter_config is not None:
+                    adapter_kwargs["config"] = adapter_config
+            module = PeftModel.from_pretrained(
+                module, local_adapter_path, is_trainable=True, **adapter_kwargs
+            )
             peft_config = module.peft_config["default"]
             # Ensure task_type is TaskType enum, not string
             if isinstance(peft_config.task_type, str):

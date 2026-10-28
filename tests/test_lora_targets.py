@@ -72,3 +72,41 @@ def test_exporter_only_changes_qwen25_targets(model_type):
     expected = 'model.visual.merger.mlp.0' if model_type == 'qwen2_5_vl' else '0'
     assert namespace['target_modules'] == {expected}
     assert list(namespace['lora_params']) == [name.replace('.default.weight', '.weight')]
+
+
+@pytest.mark.parametrize('model_type,repair', [
+    ('qwen2_5_vl', True), ('qwen2_5_vl', False),
+    ('qwen3_vl', False), ('qwen3_vl_moe', False),
+])
+def test_fsdp_stage2_loads_trainable_adapter_with_compatible_config(model_type, repair):
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / 'verl-runtime/verl/workers/engine/fsdp/transformer_impl.py'
+    tree = ast.parse(source.read_text())
+    method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == '_build_lora_module')
+    task_type = object()
+    namespace = {'TaskType': SimpleNamespace(CAUSAL_LM=task_type)}
+    exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), 'exec'), namespace)
+    base = SimpleNamespace(config=SimpleNamespace(model_type=model_type), enable_input_require_grads=Mock())
+    config = SimpleNamespace(task_type='CAUSAL_LM', r=64, lora_alpha=128,
+                             target_modules={'model.visual.merger.mlp.0'})
+    wrapped = SimpleNamespace(peft_config={'default': config})
+    load = Mock(return_value=wrapped)
+    copy = Mock(return_value='/local/stage1/lora_adapter')
+    engine = SimpleNamespace(model_config=SimpleNamespace(lora_adapter_path='/stage1/lora_adapter', use_shm=False))
+    modules = {'peft': SimpleNamespace(PeftModel=SimpleNamespace(from_pretrained=load)),
+               'verl.utils.fs': SimpleNamespace(copy_to_local=copy)}
+    with patch.dict('sys.modules', modules), patch('opd_rag.lora.precise_adapter_config', return_value=config if repair else None) as helper:
+        result = namespace['_build_lora_module'](engine, base)
+    assert result is wrapped
+    copy.assert_called_once_with('/stage1/lora_adapter', use_shm=False)
+    base.enable_input_require_grads.assert_called_once()
+    expected = {'is_trainable': True, **({'config': config} if repair else {})}
+    load.assert_called_once_with(base, '/local/stage1/lora_adapter', **expected)
+    assert config.task_type is task_type
+    assert (config.r, config.lora_alpha) == (64, 128)
+    if model_type == 'qwen2_5_vl':
+        helper.assert_called_once_with(base, '/local/stage1/lora_adapter')
+    else:
+        helper.assert_not_called()
