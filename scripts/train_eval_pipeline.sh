@@ -8,7 +8,7 @@
 # DASHSCOPE_API_KEY is required only for unfinished scoring; it is never stored.
 # Separate image limits: TRAIN_MAX_IMAGE_PIXELS, EVAL_MAX_IMAGE_PIXELS,
 # JUDGE_MAX_IMAGE_PIXELS. Other training overrides pass through to run_opd.sh.
-# AUTO_CONFIG=true detects 4/8 A100 80GB and Qwen3-VL 2B/4B/8B configs.
+# AUTO_CONFIG=true detects 4/8 A100 80GB and Qwen3-VL 2B/4B/8B or Qwen2.5-VL 7B configs.
 # Aggressive 2B presets require runtime throughput/peak-memory validation.
 # 2B student: global train/mini batches 32/16 (4 GPUs) or 64/32 (8 GPUs),
 # actor token budget 65536, rollout prefill budget 32768, rollout memory 0.72.

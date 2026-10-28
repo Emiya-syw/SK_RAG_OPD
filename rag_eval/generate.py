@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 from time import perf_counter
 
-from opd_rag.thinking import chat_template_kwargs
+from opd_rag.thinking import chat_template_kwargs, resolve_model_type
 from opd_rag.verl_data import (
     BASIC_INSTRUCTION, BASIC_RAG_INSTRUCTION, INSTRUCTION, PROMPT_MODES, instruction_for,
 )
@@ -235,6 +235,7 @@ def generate_dataset(
     if not output_path.exists():
         # Empty shards are valid when there are fewer samples than GPUs.
         write_jsonl(output_path, [])
+    model_type = resolve_model_type(base_model)
     timings = {"prepare": 0.0, "generate_decode": 0.0, "write": 0.0}
     dataset_started = perf_counter()
     for start in range(0, len(pending), batch_size):
@@ -247,7 +248,7 @@ def generate_dataset(
             texts = [
                 processor.apply_chat_template(
                     build_messages(row, prompt_mode), tokenize=False, add_generation_prompt=True,
-                    **chat_template_kwargs(enable_thinking),
+                    **chat_template_kwargs(enable_thinking, model_type),
                 )
                 for row in batch_rows
             ]

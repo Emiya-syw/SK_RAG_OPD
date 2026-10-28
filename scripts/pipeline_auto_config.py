@@ -1,4 +1,4 @@
-"""Select Qwen3-VL LoRA presets; no model loading or GPU allocation.
+"""Select Qwen3-VL and Qwen2.5-VL-7B LoRA presets; no model loading or GPU allocation.
 
 These are starting presets, not measured throughput optima or OOM guarantees.
 Model signatures match the official Qwen3-VL 2B/4B/8B config.json files.
@@ -12,17 +12,19 @@ import sys
 
 SIGNATURES = {(2048, 28): 2, (2560, 36): 4, (4096, 36): 8}
 # token budget, rollout memory fraction, generation batch (per GPU)
-STUDENT = {2: (65536, '0.72', 16), 4: (49152, '0.65', 8), 8: (21505, '0.55', 8)}
-TEACHER = {2: ('0.60', 16), 4: ('0.65', 8), 8: ('0.50', 2)}
+STUDENT = {2: (65536, '0.72', 16), 4: (49152, '0.65', 8), 7: (21505, '0.55', 4), 8: (21505, '0.55', 8)}
+TEACHER = {2: ('0.60', 16), 4: ('0.65', 8), 7: ('0.50', 2), 8: ('0.50', 2)}
 DISTRIBUTION_LOSSES = {'forward_kl', 'jsd', 'entropy_kl', 'entropy_jsd', 'k3_jsd', 'k3_entropy_jsd'}
 
 
 def model_size(path):
     config = json.loads((Path(path) / 'config.json').read_text())
-    text = config.get('text_config', {})
+    text = config.get('text_config', config)
     signature = (text.get('hidden_size'), text.get('num_hidden_layers'))
+    if config.get('model_type') == 'qwen2_5_vl' and signature == (3584, 28):
+        return 7
     if config.get('model_type') != 'qwen3_vl' or signature not in SIGNATURES:
-        raise ValueError(f'Unsupported model config at {path}: expected dense Qwen3-VL 2B/4B/8B')
+        raise ValueError(f'Unsupported model config at {path}: expected Qwen2.5-VL 7B or dense Qwen3-VL 2B/4B/8B')
     return SIGNATURES[signature]
 
 
@@ -73,8 +75,8 @@ def choose(env, student, teacher, devices):
     # 4B throughput trial: eight rollout samples and four update samples per student GPU.
     # 8B throughput trial: four rollout samples and two update samples per student GPU.
     # Scale global batches with GPU count, keeping per-GPU memory budgets fixed.
-    batch = int(setting('TRAIN_BATCH_SIZE', trainer * {2: 16, 4: 8, 8: 4}[student]))
-    default_mini = trainer * {2: 8, 4: 4, 8: 2}[student]
+    batch = int(setting('TRAIN_BATCH_SIZE', trainer * {2: 16, 4: 8, 7: 4, 8: 4}[student]))
+    default_mini = trainer * {2: 8, 4: 4, 7: 2, 8: 2}[student]
     # An explicit training batch may not divide the preset mini-batch.
     if default_mini <= 0 or batch % default_mini:
         default_mini = batch
@@ -102,7 +104,7 @@ def choose(env, student, teacher, devices):
         'PARAM_OFFLOAD': 'false', 'OPTIMIZER_OFFLOAD': 'false',
         'ENABLE_GRADIENT_CHECKPOINTING': 'true',
         'ROLLOUT_GPU_MEMORY_UTILIZATION': rollout_memory,
-        'ROLLOUT_MAX_NUM_BATCHED_TOKENS': {2: 32768, 4: 16384, 8: 16384}[student],
+        'ROLLOUT_MAX_NUM_BATCHED_TOKENS': {2: 32768, 4: 16384, 7: 16384, 8: 16384}[student],
         'ROLLOUT_MAX_NUM_SEQS': (
             max({2: 16, 4: 8}[student], (batch + trainer - 1) // trainer)
             if student in (2, 4) else max(8, batch)

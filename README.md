@@ -52,6 +52,50 @@ python scripts/prepare_verl_data.py \
 }
 ```
 
+## Qwen2.5-VL-7B-Instruct
+
+训练、RAG/直接生成评测和 `validate_opd.py` 会根据模型 `config.json` 选择模板。
+Qwen2.5-VL-Instruct 使用自身原生模板，不插入 `<think>`，无需设置
+`ENABLE_THINKING=true`；该开关及 `THINKING_OFF_TEMPLATE` 仅作用于 Qwen3。
+7B 自动配置兼容旧版顶层配置和新版 `text_config`，支持 4/8 张 A100 80GB；
+其他硬件使用 `AUTO_CONFIG=false` 并手动设置显存、batch 和 GPU 分配。
+7B 预设是保守起点，尚未完成 GPU 吞吐/显存实测。
+
+本机已有模型 `/home/sunyw/video_safety/weights/Qwen2.5-VL-7B-Instruct`。
+在已安装项目依赖且 CUDA 可用的训练环境中，可运行：
+
+```bash
+export MODEL_PATH=/home/sunyw/video_safety/weights/Qwen2.5-VL-7B-Instruct
+export TEACHER_MODEL_PATH="$MODEL_PATH"
+# teacher 获得 teacher_demonstration；对应数据需要包含该字段。
+TEACHER_USE_PRIVILEGED_INFO=true \
+  bash scripts/train_consistent.sh data/category_consistent.jsonl outputs/qwen25vl7b
+```
+
+以上为同底座的特权信息蒸馏；若师生相同且提示词相同，初始蒸馏信号很弱。
+也可以显式指定训练后的兼容 Qwen2.5-VL teacher。启动时会校验师生 tokenizer
+词表及特殊 token ID，不能默认沿用 Qwen3 teacher。单阶段脚本不使用自动预设，
+7B 多图训练需按可用显存调整 `TRAIN_BATCH_SIZE`、`MAX_TOKEN_LEN_PER_GPU` 等参数。
+
+使用自动配置的完整训练→导出→评测流水线（在线评分需配置 API key）：
+
+```bash
+MODEL_PATH=/home/sunyw/video_safety/weights/Qwen2.5-VL-7B-Instruct \
+TEACHER_MODEL_PATH=/home/sunyw/video_safety/weights/Qwen2.5-VL-7B-Instruct \
+  bash scripts/train_eval_pipeline.sh data/category_consistent.jsonl outputs/qwen25vl7b_pipeline
+```
+
+单独评测底座模型，显式清空默认 adapter；评测训练结果时将 `ADAPTER_PATH`
+改为导出的 `lora_adapter` 目录。RAG 评测使用已有检索文件，增加
+`DIRECT_GENERATION=true` 则不带检索案例：
+
+```bash
+BASE_MODEL=/home/sunyw/video_safety/weights/Qwen2.5-VL-7B-Instruct \
+ADAPTER_PATH= MULTI_GPU=false GENERATION_BATCH_SIZE=1 \
+OUTPUT_DIR=rag_eval/results/qwen25vl7b_base \
+  bash rag_eval/run_rag_eval.sh
+```
+
 ## 训练
 
 所有当前配方使用的训练参数都集中在 `scripts/run_opd.sh` 顶部的“训练参数配置区”。

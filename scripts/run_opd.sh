@@ -30,9 +30,9 @@ TEACHER_MODEL_PATH="${TEACHER_MODEL_PATH:-Qwen/Qwen3-VL-8B-Thinking}"
 TEACHER_USE_PRIVILEGED_INFO="${TEACHER_USE_PRIVILEGED_INFO:-false}"
 # 已导出的 PEFT adapter，用于接续阶段训练。可选：空字符串或含 adapter_config.json 的目录。
 LORA_INIT_PATH="${LORA_INIT_PATH:-}"
-# 是否启用 Qwen Thinking。可选：false（空 think 后直接回答）、true（使用模型原生思考模板）。
+# Qwen3 的 Thinking 开关；Qwen2.5-VL-Instruct 始终使用原生模板，不插入 think。
 ENABLE_THINKING="${ENABLE_THINKING:-false}"
-# Thinking 关闭模板。仅 ENABLE_THINKING=false 时使用；可换成兼容的 Jinja 模板文件。
+# Qwen3 Thinking 关闭模板。仅 Qwen3 且 ENABLE_THINKING=false 时使用。
 THINKING_OFF_TEMPLATE="${THINKING_OFF_TEMPLATE:-${project_root}/opd_rag/chat_templates/qwen3_vl_thinking_off.jinja}"
 # 是否允许模型仓库自定义代码。可选：true/false；Qwen 自定义实现通常设 true。
 TRUST_REMOTE_CODE="${TRUST_REMOTE_CODE:-true}"
@@ -444,7 +444,11 @@ model_args=(
   "+actor_rollout_ref.model.override_config.attn_implementation=${ATTN_IMPLEMENTATION}"
 )
 chat_template_args=()
-if [[ "${ENABLE_THINKING}" != "true" ]]; then
+model_type="$("${PYTHON_BIN}" -m opd_rag.thinking "${MODEL_PATH}" --teacher "${TEACHER_MODEL_PATH}")"
+printf 'Model type: %s (native template for non-Qwen3 models)\n' "$model_type"
+if [[ "$model_type" != "qwen3_vl" && "$model_type" != "qwen3_vl_moe" ]]; then
+  : # Qwen2.5-VL-Instruct uses its native processor template without think tokens.
+elif [[ "${ENABLE_THINKING}" != "true" ]]; then
   [[ -f "${THINKING_OFF_TEMPLATE}" ]] || {
     echo "thinking-off chat template does not exist: ${THINKING_OFF_TEMPLATE}" >&2
     exit 2

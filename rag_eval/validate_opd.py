@@ -12,7 +12,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from opd_rag.thinking import chat_template_kwargs
+from opd_rag.thinking import chat_template_kwargs, resolve_model_type, validate_distillation_pair
 from rag_eval.data import read_jsonl
 from rag_eval.generate import (
     _open_all_images,
@@ -129,16 +129,18 @@ def main() -> None:
     if not args.asr_only:
         if args.teacher_model is None:
             raise ValueError("--teacher-model is required unless --asr-only is set")
+        validate_distillation_pair(str(args.base_model), str(args.teacher_model))
         teacher, _ = load_generator(args.teacher_model, None, None,
                                     args.dtype, args.attn_implementation)
         teacher_device = next(teacher.parameters()).device
+    model_type = resolve_model_type(args.base_model)
     records = []
     for index, row in enumerate(rows, start=1):
         images = _open_all_images(row, args.max_image_pixels)
         try:
             text = processor.apply_chat_template(build_rag_messages(row), tokenize=False,
                                                  add_generation_prompt=True,
-                                                 **chat_template_kwargs(args.enable_thinking))
+                                                 **chat_template_kwargs(args.enable_thinking, model_type))
             inputs = processor(
                 text=[text],
                 images=[images],
