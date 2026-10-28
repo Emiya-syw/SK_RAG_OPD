@@ -335,7 +335,14 @@ class BaseModelMerger(ABC):
 
         for name in lora_params_names:
             lora_key = name.replace(".default.weight", ".weight")
-            target_modules.add(lora_key.split(".")[-3])
+            # Numeric leaf names (e.g. visual.merger.mlp.0) are not unique:
+            # exporting "0" also targets entire visual.blocks.0 containers.
+            # PEFT matches full module paths relative to the wrapped base model.
+            if self.model_config.model_type == "qwen2_5_vl":
+                module_name = lora_key.rsplit(".lora_", 1)[0].removeprefix("base_model.model.")
+                target_modules.add(module_name)
+            else:
+                target_modules.add(lora_key.split(".")[-3])
             lora_params[lora_key] = state_dict.pop(name)
 
         inferred_lora_rank = min(lora_params[lora_key].shape[0], lora_params[lora_key].shape[1])

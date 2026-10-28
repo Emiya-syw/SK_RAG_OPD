@@ -174,7 +174,11 @@ def load_generator(
     if adapter is not None:
         from peft import PeftModel
 
-        model = PeftModel.from_pretrained(model, adapter)
+        from opd_rag.lora import precise_adapter_config
+
+        adapter_config = precise_adapter_config(model, adapter)
+        adapter_kwargs = {"config": adapter_config} if adapter_config is not None else {}
+        model = PeftModel.from_pretrained(model, adapter, **adapter_kwargs)
         if merge_lora:
             model = model.merge_and_unload(safe_merge=True)
     print(f"Generator loaded in {perf_counter() - load_started:.1f}s", flush=True)
