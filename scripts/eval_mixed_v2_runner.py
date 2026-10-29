@@ -32,9 +32,10 @@ def model_environments(path, environ):
             raise ValueError(f'{name}: base_model is empty')
         env = dict(environ)
         env.pop('MODELS_FILE', None)
+        output_name = name if name.endswith('_mixed_v2') else name + '_mixed_v2'
         env.update(RUN_NAME=name, BASE_MODEL=item['base_model'], ADAPTER_PATH=item['adapter_path'],
-                   OUTPUT_DIR=str(Path(env.get('RESULTS_ROOT', ROOT / 'rag_eval/results')) / name),
-                   EVAL_OUTPUT_ROOT=str(Path(env.get('SCORES_ROOT', ROOT / 'rag_eval/evaluation')) / name / 'mssbench_protocol'))
+                   OUTPUT_DIR=str(Path(env.get('RESULTS_ROOT', ROOT / 'rag_eval/results')) / output_name),
+                   EVAL_OUTPUT_ROOT=str(Path(env.get('SCORES_ROOT', ROOT / 'rag_eval/evaluation')) / output_name / 'mssbench_protocol'))
         # Per-model overrides take priority over global defaults.
         if 'profile' in item:
             env['EVAL_PROFILE'] = str(item['profile'])

@@ -43,8 +43,10 @@ if [[ -n "${MODELS_FILE:-}" ]]; then
 fi
 export DATASETS='MM-SafetyBench VLGuard MSSBench SPA-VL SIUO-Gen VLSU VLSBench'
 export RUN_NAME="${RUN_NAME:-mixed_top10_v2}"
-export OUTPUT_DIR="${OUTPUT_DIR:-${repo_root}/rag_eval/results/${RUN_NAME}}"
-export EVAL_OUTPUT_ROOT="${EVAL_OUTPUT_ROOT:-${repo_root}/rag_eval/evaluation/${RUN_NAME}/mssbench_protocol}"
+output_name="$RUN_NAME"
+[[ "$output_name" == *_mixed_v2 ]] || output_name="${output_name}_mixed_v2"
+export OUTPUT_DIR="${OUTPUT_DIR:-${repo_root}/rag_eval/results/${output_name}}"
+export EVAL_OUTPUT_ROOT="${EVAL_OUTPUT_ROOT:-${repo_root}/rag_eval/evaluation/${output_name}/mssbench_protocol}"
 export SOURCE_DATA_ROOT="${DATA_ROOT:-${repo_root}/rag_eval/data}"
 export DATA_ROOT="${OUTPUT_DIR}/inputs/data"
 export RETRIEVAL_ROOT="${OUTPUT_DIR}/inputs/retrieval_v2"

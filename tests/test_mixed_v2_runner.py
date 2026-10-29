@@ -39,6 +39,8 @@ def test_model_pairs_have_separate_outputs(tmp_path):
     assert [e['BASE_MODEL'] for e in envs] == ['/base-a', '/base-a', '/base-b']
     assert [e['ADAPTER_PATH'] for e in envs] == ['/a', '/b', '/c']
     assert len({e['OUTPUT_DIR'] for e in envs}) == 3
+    assert [Path(e['OUTPUT_DIR']).name for e in envs] == ['A_mixed_v2', 'B_mixed_v2', 'C_mixed_v2']
+    assert all(Path(e['EVAL_OUTPUT_ROOT']).parent.name.endswith('_mixed_v2') for e in envs)
     assert all('MODELS_FILE' not in e for e in envs)
     path.write_text(json.dumps([models[0], models[0]]))
     with pytest.raises(ValueError, match='duplicate'):
