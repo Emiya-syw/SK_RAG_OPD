@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 from typing import Any
 from time import perf_counter
 
@@ -164,11 +165,18 @@ def load_generator(
     if processor.tokenizer.pad_token is None:
         processor.tokenizer.pad_token = processor.tokenizer.eos_token
     processor.tokenizer.padding_side = "left"
-    model = AutoModelForImageTextToText.from_pretrained(
+    import json
+    config_path = base_model / "config.json"
+    config = json.loads(config_path.read_text()) if config_path.is_file() else {}
+    model_class = AutoModelForImageTextToText
+    if "AutoModelForVision2Seq" in config.get("auto_map", {}):
+        from transformers import AutoModelForVision2Seq
+        model_class = AutoModelForVision2Seq
+    model = model_class.from_pretrained(
         base_model,
         torch_dtype=_dtype(dtype),
         attn_implementation=attn_implementation,
-        device_map="auto",
+        device_map=os.environ.get("EVAL_DEVICE_MAP", "auto"),
         trust_remote_code=True,
     )
     if adapter is not None:
@@ -217,6 +225,7 @@ def generate_dataset(
     top_k: int | None = None,
     direct_generation: bool = False,
     prompt_mode: str = "guided",
+    limit: int = 0,
 ) -> None:
     import torch
 
@@ -226,6 +235,10 @@ def generate_dataset(
     if progress_every < 1:
         raise ValueError("progress_every must be >= 1")
     rows = read_jsonl(retrieval_path)
+    if limit < 0:
+        raise ValueError("limit must be nonnegative")
+    if limit:
+        rows = rows[:limit]
     if top_k is not None and not direct_generation:
         rows = [limit_retrieval(row, top_k) for row in rows]
     if num_shards < 1 or not 0 <= shard_index < num_shards:
@@ -248,6 +261,7 @@ def generate_dataset(
         open_images = _open_current_images if direct_generation else _open_all_images
         build_messages = build_direct_messages if direct_generation else build_rag_messages
         batch_images = [open_images(row, max_image_pixels) for row in batch_rows]
+        retry_batch_size = None
         try:
             texts = [
                 processor.apply_chat_template(
@@ -282,13 +296,33 @@ def generate_dataset(
             ]
             # batch_decode transfers generated IDs to CPU, completing GPU work.
             timings["generate_decode"] += perf_counter() - generation_started
+        except torch.OutOfMemoryError:
+            if batch_size == 1:
+                raise
+            retry_batch_size = max(1, batch_size // 2)
+            print(f'[OOM] Reducing batch {batch_size} -> {retry_batch_size}; resuming saved rows', flush=True)
         finally:
             for images in batch_images:
                 for image in images:
                     image.close()
+        if retry_batch_size is not None:
+            inputs = generated = None
+            batch_images = []
+            torch.cuda.empty_cache()
+            return generate_dataset(
+                model=model, processor=processor, retrieval_path=retrieval_path, output_path=output_path,
+                base_model=base_model, adapter=adapter, max_new_tokens=max_new_tokens,
+                max_image_pixels=max_image_pixels, resume=True, progress_every=progress_every,
+                batch_size=retry_batch_size, shard_index=shard_index, num_shards=num_shards,
+                enable_thinking=enable_thinking, top_k=top_k, direct_generation=direct_generation,
+                prompt_mode=prompt_mode, limit=limit)
         results = []
-        for row, raw in zip(batch_rows, raw_predictions):
-            generated_tokens = max(0, int(generated.shape[1] - inputs["input_ids"].shape[1]))
+        eos_ids = getattr(model.generation_config, "eos_token_id", None)
+        eos_ids = {eos_ids} if isinstance(eos_ids, int) else set(eos_ids or [])
+        for row, raw, sequence in zip(batch_rows, raw_predictions, generated[:, prompt_length:]):
+            token_ids = sequence.tolist()
+            first_eos = next((i for i, token in enumerate(token_ids) if token in eos_ids), None)
+            generated_tokens = len(token_ids) if first_eos is None else first_eos + 1
             results.append(
                 {
                     **row,
@@ -300,7 +334,7 @@ def generate_dataset(
                     "raw_prediction": raw,
                     "prediction": visible_answer(raw),
                     "generated_tokens": generated_tokens,
-                    "generation_truncated": generated_tokens >= max_new_tokens,
+                    "generation_truncated": first_eos is None and generated_tokens >= max_new_tokens,
                 }
             )
         write_started = perf_counter()

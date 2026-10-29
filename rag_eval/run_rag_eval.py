@@ -105,6 +105,11 @@ def main() -> None:
     args = parse_args()
     datasets = select_datasets(args.datasets, args.data_root)
     reports = [validate_pair(files) for files in datasets]
+    if args.stage == "generate" and args.direct_generation:
+        # Direct baselines never consume retrieval answers. Preserve all other
+        # structural/image validation while allowing unannotated retrieval pools.
+        for report in reports:
+            report["ok"] = not report["errors"] and report["missing_images"] == 0
     print(json.dumps(reports, indent=2, ensure_ascii=False), flush=True)
     invalid = [report for report in reports if not report["ok"]]
     if invalid:
@@ -183,6 +188,7 @@ def main() -> None:
             top_k=generation_top_k,
             direct_generation=args.direct_generation,
             prompt_mode=args.prompt_mode,
+            limit=args.limit,
         )
         if args.completion_dir is not None:
             marker = args.completion_dir / files.name / f"{args.shard_index}.done"

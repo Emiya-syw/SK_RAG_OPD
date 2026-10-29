@@ -17,10 +17,16 @@ if [[ "${MULTI_GPU:-true}" == "true" ]]; then
     echo "MULTI_GPU mode currently supports STAGE=generate only; run retrieval once first." >&2
     exit 2
   fi
+  selected_gpu_ids="${GPU_IDS:-${CUDA_VISIBLE_DEVICES:-0,1}}"
+  if [[ "${AUTO_GPU_POLICY:-true}" == true && -f "${repo_root}/rag_eval/auto_gpu_policy.json" ]]; then
+    selected_gpu_ids="$("${python_bin}" -m rag_eval.gpu_capacity \
+      --policy "${repo_root}/rag_eval/auto_gpu_policy.json" --output-root "${output_dir}" \
+      --datasets "${dataset_args[@]}" --requested "$selected_gpu_ids")"
+  fi
   exec "${python_bin}" -m rag_eval.multi_gpu_generate \
     --script "${repo_root}/rag_eval/run_rag_eval.sh" \
     --output-dir "${output_dir}" --datasets "${dataset_args[@]}" \
-    --gpu-ids "${GPU_IDS:-${CUDA_VISIBLE_DEVICES:-0,1}}"
+    --gpu-ids "$selected_gpu_ids"
 fi
 
 if [[ "${1:-}" == "--internal-multi-gpu-shard" ]]; then
