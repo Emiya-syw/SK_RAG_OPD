@@ -78,6 +78,9 @@ fi
 if [[ -n "${RETRIEVAL_ROOT:-}" ]]; then
   args+=(--retrieval-root "${RETRIEVAL_ROOT}")
 fi
+if [[ "${SKIP_CORPUS_VALIDATION:-false}" == true ]]; then
+  args+=(--skip-corpus-validation)
+fi
 
 if [[ "${num_shards}" -gt 1 || -n "${GENERATION_COMPLETION_DIR:-}" ]]; then
   args+=(--output-suffix ".rank${shard_index}of${num_shards}")

@@ -93,6 +93,8 @@ def parse_args() -> argparse.Namespace:
                         help="Generate from each dataset's test.jsonl prompt without retrieved cases")
     parser.add_argument("--retrieval-root", type=Path,
                         help="Directory containing <dataset>/retrieval.jsonl files for generation")
+    parser.add_argument("--skip-corpus-validation", action="store_true",
+                        help="Generate from precomputed --retrieval-root without loading or validating the original corpus")
     parser.add_argument("--progress-every", type=int, default=20)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
@@ -101,10 +103,32 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def prepare_datasets(args):
+    if args.skip_corpus_validation:
+        if args.stage != "generate" or args.retrieval_root is None or args.direct_generation:
+            raise ValueError('--skip-corpus-validation requires generation with precomputed --retrieval-root')
+        names = args.datasets
+        if not names or any(name.lower() == 'all' for name in names):
+            names = sorted(p.name for p in args.data_root.iterdir() if (p / 'test.jsonl').is_file())
+        datasets = []
+        for name in names:
+            if Path(name).name != name or name in ('.', '..'):
+                raise ValueError(f'Invalid dataset name: {name}')
+            test = args.data_root / name / 'test.jsonl'
+            retrieval = args.retrieval_root / name / 'retrieval.jsonl'
+            for path in (test, retrieval):
+                if not path.is_file():
+                    raise FileNotFoundError(path)
+            datasets.append(DatasetFiles(name, retrieval, test))
+        return datasets, []
     datasets = select_datasets(args.datasets, args.data_root)
     reports = [validate_pair(files) for files in datasets]
+    return datasets, reports
+
+
+def main() -> None:
+    args = parse_args()
+    datasets, reports = prepare_datasets(args)
     if args.stage == "generate" and args.direct_generation:
         # Direct baselines never consume retrieval answers. Preserve all other
         # structural/image validation while allowing unannotated retrieval pools.

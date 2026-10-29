@@ -21,7 +21,8 @@
 # Initial throughput presets, not measured maxima; batch OOM retries halve again.
 # For a separate smoke run: LIMIT=16 RESULTS_ROOT=/tmp/v2-smoke-results
 # SCORES_ROOT=/tmp/v2-smoke-scores MODELS_FILE=... STAGE=all bash this-script
-# Remote data must preserve/relocate absolute corpus and image paths in JSONL.
+# Remote data must preserve/relocate absolute image paths in JSONL.
+# The original mixed corpus is not loaded or validated for precomputed v2 runs.
 # Automatic checkpoint/base lookup:
 # bash scripts/eval_mixed_top10_v2.sh opd_s2b_t8b_stage2_entropy_jsd_v2
 # Searches outputs/<name>, then outputs/<name without _v2>; latest numeric step.
@@ -60,6 +61,7 @@ export JUDGE_WORKERS="${JUDGE_WORKERS:-16}"
 export JUDGE_ADAPTIVE="${JUDGE_ADAPTIVE:-true}"
 export FLUSH_EVERY="${FLUSH_EVERY:-4}"
 export DIRECT_GENERATION=false
+export SKIP_CORPUS_VALIDATION=true
 export LIMIT="${LIMIT:-0}"
 export MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1536}"
 export MAX_IMAGE_PIXELS="${MAX_IMAGE_PIXELS:-262144}"
@@ -119,23 +121,15 @@ for name in env['DATASETS'].split():
     ids = [str(row['id']) for row in rows]
     if not rows or len(set(ids)) != len(ids) or ids != [str(row['id']) for row in test_rows]:
         raise ValueError(f'{name}: v2 IDs/order must match the original test split')
-    corpora = set()
     for row in rows:
         config = row['retrieval_config']
         if config.get('version') != 2 or len(row['retrieval']) < int(env['TOP_K']):
             raise ValueError(f'{name}/{row["id"]}: invalid v2 retrieval or insufficient cases')
-        corpora.add(str(Path(config['corpus']).resolve()))
-    if len(corpora) != 1:
-        raise ValueError(f'{name}: expected a single mixed corpus')
-    corpus = Path(corpora.pop())
-    if not corpus.is_file():
-        raise FileNotFoundError(corpus)
-    # The evaluator validates a corpus/test pair even for precomputed retrieval.
-    # Give it the actual mixed corpus instead of unannotated original retrieval files.
+    # Keep the corpus name as provenance only; no file access is required.
+    corpus = rows[0].get('retrieval_config', {}).get('corpus', '')
     data = output / 'inputs/data' / name
     retrieval = output / 'inputs/retrieval_v2' / name
     links.extend([(data / 'test.jsonl', test),
-                  (data / 'retrieval.jsonl', corpus),
                   (retrieval / 'retrieval.jsonl', v2)])
     inputs[name] = {'v2': str(v2), 'sha256': hashlib.sha256(raw).hexdigest(),
                     'corpus': str(corpus), 'count': len(rows)}
