@@ -1,8 +1,26 @@
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
 from scripts.resolve_eval_checkpoint import experiment, latest_actor, exported_adapter, base_model
+
+
+def test_repository_scripts_wins_over_installed_package(tmp_path):
+    installed = tmp_path / 'site-packages/scripts'
+    installed.mkdir(parents=True)
+    (installed / '__init__.py').write_text('raise RuntimeError("Wrong scripts package")\n')
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, '-c', 'import scripts.resolve_eval_checkpoint as m; print(m.__file__)'],
+        cwd=tmp_path, env=dict(os.environ, PYTHONPATH=os.pathsep.join([str(root), str(installed.parent)])),
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert str(root / 'scripts/resolve_eval_checkpoint.py') in result.stdout
 
 
 def test_v2_alias_and_numeric_latest_checkpoint(tmp_path):
