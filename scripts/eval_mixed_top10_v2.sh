@@ -22,12 +22,21 @@
 # For a separate smoke run: LIMIT=16 RESULTS_ROOT=/tmp/v2-smoke-results
 # SCORES_ROOT=/tmp/v2-smoke-scores MODELS_FILE=... STAGE=all bash this-script
 # Remote data must preserve/relocate absolute corpus and image paths in JSONL.
+# Automatic checkpoint/base lookup:
+# bash scripts/eval_mixed_top10_v2.sh opd_s2b_t8b_stage2_entropy_jsd_v2
+# Searches outputs/<name>, then outputs/<name without _v2>; latest numeric step.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 export PYTHONPATH="${repo_root}${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHON_BIN="${PYTHON_BIN:-python3}"
+if (( $# > 1 )); then
+  echo 'Usage: eval_mixed_top10_v2.sh [EXPERIMENT_NAME_OR_RUN_NAME]' >&2; exit 2
+fi
+if (( $# == 1 )); then
+  export RUN_NAME="$1"
+fi
 if [[ -n "${MODELS_FILE:-}" ]]; then
   exec "$PYTHON_BIN" -m scripts.eval_mixed_v2_runner --models "$MODELS_FILE"
 fi
@@ -68,6 +77,11 @@ if [[ "$stage" != generate && "$DRY_RUN" != true && "${RECOMPUTE_ONLY:-false}" !
 fi
 
 if [[ "$stage" != judge ]]; then
+  if [[ ! ${ADAPTER_PATH+x} ]]; then
+    resolved_paths="$("$PYTHON_BIN" -m scripts.resolve_eval_checkpoint)"
+    mapfile -t model_paths <<< "$resolved_paths"
+    export BASE_MODEL="${model_paths[0]}" ADAPTER_PATH="${model_paths[1]}"
+  fi
   : "${BASE_MODEL:?Set BASE_MODEL to the trained model or the matching LoRA base model}"
   # Explicitly empty ADAPTER_PATH selects a full/merged model; never inherit an unrelated adapter.
   [[ ${ADAPTER_PATH+x} ]] || { echo "Set ADAPTER_PATH to the exported LoRA directory, or '' for a full/merged model." >&2; exit 2; }
