@@ -51,7 +51,7 @@ def base_model(root, adapter, directory, explicit=None):
             raise FileNotFoundError(f'BASE_MODEL does not exist: {explicit}')
         return Path(explicit).resolve()
     metadata = json.loads((adapter / 'adapter_config.json').read_text())
-    references = [metadata.get('base_model_name_or_path')]
+    references = []
     training = directory / 'training_config.txt'
     if training.is_file():
         for line in training.read_text().splitlines():
@@ -60,6 +60,10 @@ def base_model(root, adapter, directory, explicit=None):
                 values = shlex.split(match[1])
                 if len(values) == 1:
                     references.append(values[0])
+    # The training record identifies the student actually used by this run.
+    # A stale adapter reference must not override it, even if that path exists.
+    if not references:
+        references.append(metadata.get('base_model_name_or_path'))
     for reference in references:
         if not isinstance(reference, str) or not reference:
             continue

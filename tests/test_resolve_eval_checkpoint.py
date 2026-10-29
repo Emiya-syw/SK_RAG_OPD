@@ -49,3 +49,23 @@ def test_latest_checkpoint_never_silently_uses_older_export(tmp_path):
     (tmp_path / 'global_step_20').mkdir()
     with pytest.raises(FileNotFoundError, match='Latest checkpoint'):
         latest_actor(tmp_path)
+
+
+def test_training_model_path_overrides_existing_stale_adapter_base(tmp_path):
+    adapter = tmp_path / 'adapter'
+    adapter.mkdir()
+    stale = tmp_path / 'stale-base'
+    student = tmp_path / 'models/Qwen3-VL-2B-Thinking'
+    for model in (stale, student):
+        model.mkdir(parents=True)
+        (model / 'config.json').write_text('{}')
+    (adapter / 'adapter_config.json').write_text(json.dumps({'base_model_name_or_path': str(stale)}))
+    (tmp_path / 'training_config.txt').write_text(
+        '[runtime_and_models]\n'
+        f'MODEL_PATH                             = {student}\n'
+        f'TEACHER_MODEL_PATH                     = {stale}\n'
+        'LORA_INIT_PATH                         = /old-stage1/lora_adapter\n')
+    assert base_model(tmp_path, adapter, tmp_path) == student
+    (student / 'config.json').unlink()
+    with pytest.raises(FileNotFoundError, match='student base'):
+        base_model(tmp_path, adapter, tmp_path)
