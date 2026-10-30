@@ -41,7 +41,7 @@ fi
 if [[ -n "${MODELS_FILE:-}" ]]; then
   exec "$PYTHON_BIN" -m scripts.eval_mixed_v2_runner --models "$MODELS_FILE"
 fi
-export DATASETS='MM-SafetyBench VLGuard MSSBench SPA-VL SIUO-Gen VLSU VLSBench'
+export DATASETS="${DATASETS:-MM-SafetyBench VLGuard MSSBench SPA-VL SIUO-Gen VLSU VLSBench}"
 export RUN_NAME="${RUN_NAME:-mixed_top10_v2}"
 output_name="$RUN_NAME"
 [[ "$output_name" == *_mixed_v2 ]] || output_name="${output_name}_mixed_v2"
