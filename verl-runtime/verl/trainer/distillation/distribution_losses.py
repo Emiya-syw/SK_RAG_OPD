@@ -5,8 +5,9 @@ score those tokens against the student's full-vocabulary probabilities. JSD
 and entropy_jsd retain full-softmax mass on teacher top-k plus a residual
 bucket for all other tokens. Both entropy modes approximate full-vocabulary
 entropy from each model's own top-k probabilities and one bucket for the
-remaining probability mass. Their shared gate signal uses teacher entropy,
-student coverage, and teacher top-k mass.
+remaining probability mass. entropy_kl uses the EOPD hard threshold (Eq. 9),
+with the same approximate teacher entropy as entropy_jsd rather than the
+paper's exact full-vocabulary entropy.
 The entropy_kl reverse component instead uses the student-sampled token's
 teacher and student logprobs with a PPO surrogate in losses.py. Forward KL
 does not use a residual-mass bucket.
@@ -132,7 +133,11 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
     forward = (
         teacher_topk_log_probs.exp() * (teacher_topk_log_probs - student_topk_log_probs)
     ).sum(-1)
-    if mode in ("entropy_kl", "entropy_jsd"):
+    if mode == "entropy_kl":
+        alpha = config.entropy_kl_forward_coefficient * (
+            ht > config.entropy_kl_teacher_entropy_threshold
+        ).to(ht.dtype)
+    elif mode == "entropy_jsd":
         # Compare raw full-softmax probabilities on the identical teacher top-k
         # IDs. A student overallocating one teacher token cannot compensate for
         # missing another teacher mode.
@@ -149,12 +154,8 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
             (1 - config.entropy_kl_teacher_mass_floor)
         ).clamp(0, 1).detach()
         raw_alpha = entropy_signal * deficit
-        if mode == "entropy_jsd":
-            # Unreliable top-k mass removes the adaptive tilt, not the JSD
-            # supervision. Entropy KL still gates its additional FKL term.
-            alpha = (0.5 + teacher_mass_confidence * (raw_alpha - 0.5)).detach()
-        else:
-            alpha = (teacher_mass_confidence * raw_alpha).detach()
+        # Unreliable top-k mass removes the adaptive tilt, not the JSD supervision.
+        alpha = (0.5 + teacher_mass_confidence * (raw_alpha - 0.5)).detach()
         tail_confidence = teacher_mass_confidence
     else:
         alpha = torch.zeros_like(hs)
@@ -189,9 +190,10 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         "student_entropy": hs,
         "teacher_entropy": ht,
     }
-    if tail_confidence is not None:
+    if mode in ("entropy_kl", "entropy_jsd"):
         result["student_tail_mass"] = student_tail
         result["teacher_tail_mass"] = teacher_tail
+    if tail_confidence is not None:
         result["entropy_gate_confidence"] = tail_confidence
         result["teacher_topk_coverage"] = coverage
     if mode in ("forward_kl", "entropy_kl"):

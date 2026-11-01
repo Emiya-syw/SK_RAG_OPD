@@ -291,7 +291,7 @@ def distillation_loss(
     distillation_metrics.update(
         compute_distillation_loss_range(distillation_losses=distillation_losses, response_mask=response_mask)
     )
-    if loss_config.loss_max_clamp is not None and loss_config.loss_mode not in K3_JSD_LOSS_MODES:
+    if loss_config.loss_max_clamp is not None and loss_config.loss_mode not in (*K3_JSD_LOSS_MODES, "entropy_kl"):
         # clamping min is for k1 loss which can be negative
         distillation_losses = distillation_losses.clamp(min=-loss_config.loss_max_clamp, max=loss_config.loss_max_clamp)
 

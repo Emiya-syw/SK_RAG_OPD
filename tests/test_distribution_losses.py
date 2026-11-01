@@ -53,62 +53,40 @@ class DistributionLossTests(unittest.TestCase):
                 torch.testing.assert_close(out['teacher_mass'], teacher[..., :2].exp().sum(-1))
                 self.assertTrue(torch.isfinite(out['distillation_losses']).all())
 
-    def test_entropy_kl_gate_uses_own_topk_and_tail_bucket(self):
-        logits = torch.tensor([[[2., 1., 0., -1.]]], requires_grad=True)
-        teacher_logits = torch.tensor([[[1., 0., -.5, -2.]]])
-        teacher_logprobs = teacher_logits.log_softmax(-1)[..., :2]
-        out = compute_distribution_from_logits(logits, teacher_logprobs,
-                                               torch.tensor([[[0, 1]]]), config('entropy_kl'))
-        student_topk = logits.log_softmax(-1).topk(2).values
-        student_entropy, student_tail = bucket_entropy(student_topk)
-        teacher_entropy, teacher_tail = bucket_entropy(teacher_logprobs)
-        torch.testing.assert_close(out['student_entropy'], student_entropy)
-        torch.testing.assert_close(out['teacher_entropy'], teacher_entropy)
-        teacher_mass = teacher_logprobs.exp().sum(-1)
-        student_on_teacher = logits.log_softmax(-1)[..., :2].exp()
-        coverage = torch.minimum(teacher_logprobs.exp(), student_on_teacher).sum(-1) / teacher_mass
-        deficit = ((1 - coverage) / .3).clamp(0, 1)
-        confidence = ((teacher_mass - .95) / .05).clamp(0, 1)
-        expected_alpha = confidence * torch.sigmoid((teacher_entropy - .8) / 1.) * deficit
-        torch.testing.assert_close(out['forward_weight'], expected_alpha)
-        torch.testing.assert_close(out['entropy_gate_confidence'], confidence)
-        torch.testing.assert_close(out['teacher_topk_coverage'], coverage)
-        self.assertFalse(out['forward_weight'].requires_grad)
+    def test_eopd_hard_threshold_and_coefficient(self):
+        teacher = torch.tensor([[.3, .2]], dtype=torch.double).log().requires_grad_()
+        student = torch.tensor([[.6, .1]], dtype=torch.double).log().requires_grad_()
+        entropy = bucket_entropy(teacher)[0].item()
+        for threshold, weight in [(entropy - .001, 2.), (entropy, 0.), (entropy + .001, 0.)]:
+            out = distribution_loss(student, teacher, config('entropy_kl',
+                entropy_kl_forward_coefficient=2., entropy_kl_teacher_entropy_threshold=threshold))
+            torch.testing.assert_close(out['forward_weight'], torch.full((1,), weight, dtype=torch.double))
+            expected = weight * (teacher.detach().softmax(-1) *
+                (teacher.detach().log_softmax(-1) - student)).sum(-1)
+            torch.testing.assert_close(out['distillation_losses'], expected)
+            actual_grad = torch.autograd.grad(out['distillation_losses'].sum(), (student, teacher),
+                                             allow_unused=True, retain_graph=True)
+            torch.testing.assert_close(actual_grad[0], -weight * teacher.detach().softmax(-1))
+            self.assertIsNone(actual_grad[1])
+            self.assertFalse(out['forward_weight'].requires_grad)
 
-    def test_entropy_kl_increases_fkl_for_uncertain_teacher_and_missing_modes(self):
-        teacher = torch.tensor([[.5, .3, .2]]).log()
-        collapsed = torch.tensor([[.9, .05, .05]], requires_grad=True)
-        matched = torch.tensor([[.5, .3, .2]])
-        a = distribution_loss(collapsed.log(), teacher, config('entropy_kl', topk=3))
-        b = distribution_loss(matched.log(), teacher, config('entropy_kl', topk=3))
-        peaked_teacher = torch.tensor([[.9, .05, .05]]).log()
-        peaked_student = torch.tensor([[.05, .9, .05]]).log()
-        c = distribution_loss(peaked_student, peaked_teacher, config('entropy_kl', topk=3))
-        torch.testing.assert_close(a['teacher_topk_coverage'], torch.tensor([.6]))
-        torch.testing.assert_close(b['teacher_topk_coverage'], torch.ones(1))
-        self.assertGreater(a['forward_weight'].item(), 0.)
-        self.assertLess(b['forward_weight'].item(), a['forward_weight'].item())
-        self.assertLess(c['forward_weight'].item(), a['forward_weight'].item())
-        self.assertFalse(a['teacher_topk_coverage'].requires_grad)
-        self.assertFalse(a['forward_weight'].requires_grad)
-        a['distillation_losses'].sum().backward()
-        self.assertTrue(torch.isfinite(collapsed.grad).all())
+    def test_entropy_kl_and_jsd_use_identical_entropy_estimates(self):
+        student = torch.tensor([[[2., 1., 0., -1., -2.]]], requires_grad=True)
+        teacher = torch.tensor([[[1., .5, 0., -.5, -2.]]]).log_softmax(-1)
+        outputs = [compute_distribution_from_logits(student, teacher[..., :2],
+                   torch.tensor([[[0, 1]]]), config(mode, topk=2, entropy_topk=4),
+                   teacher_gate_log_probs=teacher[..., :4]) for mode in ('entropy_kl', 'entropy_jsd')]
+        for key in ('teacher_entropy', 'student_entropy', 'teacher_tail_mass', 'student_tail_mass'):
+            torch.testing.assert_close(outputs[0][key], outputs[1][key])
+        expected = bucket_entropy(teacher[..., :4])[0]
+        torch.testing.assert_close(outputs[0]['teacher_entropy'], expected)
+        torch.testing.assert_close(outputs[0]['forward_weight'], (expected > .8).float())
 
-    def test_entropy_kl_low_teacher_topk_mass_disables_forward_term(self):
-        student = torch.tensor([[.6, .1]]).log()
+    def test_eopd_ignores_coverage_and_topk_mass_gates(self):
         teacher = torch.tensor([[.3, .2]]).log()
-        out = distribution_loss(student, teacher, config('entropy_kl', topk=2))
-        torch.testing.assert_close(out['forward_weight'], torch.zeros(1))
-        torch.testing.assert_close(out['entropy_gate_confidence'], torch.zeros(1))
-
-    def test_entropy_jsd_uses_same_signal_with_neutral_mass_fallback(self):
-        student = torch.tensor([[.7, .2, .1]]).log()
-        teacher = torch.tensor([[.3, .5, .2]]).log()
-        kl_out = distribution_loss(student, teacher, config('entropy_kl', topk=3))
-        jsd_out = distribution_loss(student, teacher, config('entropy_jsd', topk=3))
-        torch.testing.assert_close(1 - jsd_out['jsd_beta'], kl_out['forward_weight'])
-        torch.testing.assert_close(jsd_out['teacher_topk_coverage'], kl_out['teacher_topk_coverage'])
-        torch.testing.assert_close(jsd_out['entropy_gate_confidence'], kl_out['entropy_gate_confidence'])
+        for student in [teacher, torch.tensor([[.8, .1]]).log()]:
+            out = distribution_loss(student, teacher, config('entropy_kl'))
+            torch.testing.assert_close(out['forward_weight'], torch.ones(1))
 
     def test_entropy_jsd_low_teacher_mass_keeps_symmetric_jsd_active(self):
         logits = torch.tensor([[[2., 1., 0., -1.]]], requires_grad=True)
@@ -162,7 +140,7 @@ class DistributionLossTests(unittest.TestCase):
                 alpha = (entropy_signal * deficit).detach()
                 beta = 1 - alpha if mode in ('entropy_jsd', 'k3_entropy_jsd') else torch.full_like(alpha, .5)
                 m = beta[:, None] * t + (1-beta[:, None]) * s
-                expected = {'forward_kl': kl(t, s), 'entropy_kl': alpha*kl(t, s),
+                expected = {'forward_kl': kl(t, s), 'entropy_kl': (ht > .8).to(ht.dtype)*kl(t, s),
                             'jsd': beta*kl(t, m)+(1-beta)*kl(s, m),
                             'entropy_jsd': beta*kl(t, m)+(1-beta)*kl(s, m),
                             'k3_jsd': beta*kl(t, m)+(1-beta)*kl(s, m),
@@ -293,7 +271,9 @@ class DistributionLossTests(unittest.TestCase):
                            {'entropy_gate_tail_cutoff': 0.},
                            {'entropy_kl_teacher_entropy_threshold': -1.},
                            {'entropy_kl_coverage_deficit_scale': 0.},
-                           {'entropy_kl_teacher_mass_floor': 1.}):
+                           {'entropy_kl_teacher_mass_floor': 1.},
+                           {'entropy_kl_forward_coefficient': -1.},
+                           {'entropy_kl_forward_coefficient': float('nan')}):
                 with self.assertRaises(ValueError):
                     config(mode, **kwargs)
             if mode in ENTROPY_GATE_LOSS_MODES:
@@ -441,7 +421,7 @@ class DistributionLossTests(unittest.TestCase):
         teacher_rows[:, -1] = sampled_teacher
         old = torch.tensor([[-.7, -.8, -5.]])
         current = torch.tensor([0., -.1, -.9, -2., 0.], requires_grad=True)
-        forward = torch.tensor([0., .4, .3, .2, 0.], requires_grad=True)
+        forward = torch.tensor([0., 14., .3, 12., 0.], requires_grad=True)
         weight = torch.full((5,), .25)
         data = TensorDict({
             'prompts': torch.ones(1, 2, dtype=torch.long),

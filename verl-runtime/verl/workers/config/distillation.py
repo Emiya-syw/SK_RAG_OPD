@@ -88,7 +88,8 @@ class DistillationLossConfig(BaseConfig):
     # Legacy entropy_jsd gate settings; retained for configuration compatibility.
     entropy_gate_epsilon: float = 0.05
     entropy_gate_tail_cutoff: float = 0.2
-    # Shared by entropy_kl and entropy_jsd.
+    # EOPD hard threshold and FKL coefficient; threshold also used by JSD.
+    entropy_kl_forward_coefficient: float = 1.0
     entropy_kl_teacher_entropy_threshold: float = 0.8
     entropy_kl_coverage_deficit_scale: float = 0.3
     entropy_kl_teacher_mass_floor: float = 0.95
@@ -126,6 +127,10 @@ class DistillationLossConfig(BaseConfig):
             self.entropy_kl_coverage_deficit_scale, self.entropy_kl_teacher_mass_floor,
             self.k3_jsd_lambda,
         )
+
+        import math
+        if not math.isfinite(self.entropy_kl_forward_coefficient) or self.entropy_kl_forward_coefficient < 0:
+            raise ValueError("entropy_kl_forward_coefficient must be finite and >= 0.")
 
         if self.policy_loss_mode != "vanilla":
             raise NotImplementedError(

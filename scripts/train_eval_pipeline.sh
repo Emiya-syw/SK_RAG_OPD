@@ -4,6 +4,7 @@
 # Data precedence: SOURCE_JSONL argument > TRAIN_DATA_FILE > stage default.
 # Override defaults with environment variables. START_STAGE=train|export|generate|judge.
 # DRY_RUN=true prints the plan without running stages or requiring an API key.
+# TRAIN_ONLY=true stops after training, without export, generation or judging.
 # Existing artifacts are checked per stage/dataset; complete stages print [SKIP].
 # DASHSCOPE_API_KEY is required only for unfinished scoring; it is never stored.
 # Separate image limits: TRAIN_MAX_IMAGE_PIXELS, EVAL_MAX_IMAGE_PIXELS,
@@ -192,6 +193,11 @@ if (( start == 1 )); then
     echo '[1/4] Training'
     run_step env MAX_IMAGE_PIXELS="${TRAIN_MAX_IMAGE_PIXELS:-50176}" bash "$train_script" "$source_file" "$train_dir"
   fi
+fi
+
+if [[ "${TRAIN_ONLY:-false}" == true ]]; then
+  echo '[DONE] Training only; skipping adapter export, generation and judging'
+  exit 0
 fi
 
 if (( start <= 3 )); then
