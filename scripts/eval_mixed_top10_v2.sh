@@ -9,6 +9,8 @@
 # STAGE=all (default): both; scoring requires DASHSCOPE_API_KEY in the environment.
 # DRY_RUN=true checks inputs and prints commands without inference/API calls/writes.
 # TOP_K defaults to 3 (existing pipeline convention); set TOP_K=10 to use all ten.
+# RETRIEVAL_FILE selects test_mixed_top10_v2.jsonl (default),
+# test_mixed_top10_clip.jsonl, or test_mixed_top10_2b.jsonl. Use separate OUTPUT_DIRs.
 # Scoring uses the shared MSSBench protocol, not each benchmark's official metric.
 # The v2 corpus includes test-derived knowledge, as recorded in retrieval_config.
 # Multiple models: MODELS_FILE=scripts/eval_mixed_top10_v2.models.example.json
@@ -51,6 +53,11 @@ export SOURCE_DATA_ROOT="${DATA_ROOT:-${repo_root}/rag_eval/data}"
 export DATA_ROOT="${OUTPUT_DIR}/inputs/data"
 export RETRIEVAL_ROOT="${OUTPUT_DIR}/inputs/retrieval_v2"
 export TOP_K="${TOP_K:-3}"
+export RETRIEVAL_FILE="${RETRIEVAL_FILE:-test_mixed_top10_v2.jsonl}"
+case "$RETRIEVAL_FILE" in
+  test_mixed_top10_v2.jsonl|test_mixed_top10_clip.jsonl|test_mixed_top10_2b.jsonl) ;;
+  *) echo "Unsupported RETRIEVAL_FILE: $RETRIEVAL_FILE" >&2; exit 2 ;;
+esac
 export PROMPT_MODE="${PROMPT_MODE:-guided}"
 export MULTI_GPU="${MULTI_GPU:-true}"
 export GPU_IDS="${GPU_IDS:-${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}}"
@@ -116,7 +123,7 @@ links = []
 inputs = {}
 for name in env['DATASETS'].split():
     test = source / name / 'test.jsonl'
-    v2 = source / name / 'test_mixed_top10_v2.jsonl'
+    v2 = source / name / env['RETRIEVAL_FILE']
     test_rows = [json.loads(line) for line in test.read_text().splitlines() if line.strip()]
     raw = v2.read_bytes()
     rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
@@ -127,6 +134,10 @@ for name in env['DATASETS'].split():
         config = row['retrieval_config']
         if config.get('version') != 2 or len(row['retrieval']) < int(env['TOP_K']):
             raise ValueError(f'{name}/{row["id"]}: invalid v2 retrieval or insufficient cases')
+        expected_variant = {'test_mixed_top10_clip.jsonl': 'clip',
+                            'test_mixed_top10_2b.jsonl': '2b'}.get(env['RETRIEVAL_FILE'])
+        if expected_variant and config.get('variant') != expected_variant:
+            raise ValueError(f'{name}/{row["id"]}: retrieval variant does not match {expected_variant}')
     # Keep the corpus name as provenance only; no file access is required.
     corpus = rows[0].get('retrieval_config', {}).get('corpus', '')
     data = output / 'inputs/data' / name
