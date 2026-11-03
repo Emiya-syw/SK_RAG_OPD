@@ -2,12 +2,12 @@
 # 4B OPSD/OPD Entropy JSD component ablations: E=1, D=1, rho=1.
 # Each variant trains consistent -> controlled, then evaluates seven benchmarks.
 # Run in the same 8xA100 conda environment as run_2b_4b_controlled_stage1.sh.
-# STAGE=train|eval|all (default all); DRY_RUN=true prints commands only.
+# STAGE=train|eval|all (default train); DRY_RUN=true prints commands only.
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-stage="${STAGE:-all}"
+stage="${STAGE:-train}"
 case "$stage" in train|eval|all) ;; *) echo 'STAGE must be train, eval, or all' >&2; exit 2 ;; esac
 case "${DRY_RUN:-false}" in true|false) ;; *) echo 'DRY_RUN must be true or false' >&2; exit 2 ;; esac
 (( $# == 0 )) || { echo 'Usage: STAGE=train|eval|all DRY_RUN=true|false bash scripts/run_ejsd_component_ablation_4b.sh' >&2; exit 2; }
