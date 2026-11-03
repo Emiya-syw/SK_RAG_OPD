@@ -42,6 +42,9 @@ distillation_loss:
   entropy_kl_teacher_mass_floor: 0.95
   # Adaptive JSD only: divide by beta*(1-beta). False preserves standard scale.
   entropy_jsd_normalize: false
+  entropy_jsd_use_entropy_modulation: true
+  entropy_jsd_use_coverage_modulation: true
+  entropy_jsd_use_mass_gate: true
   # k3_jsd / k3_entropy_jsd: L = K3 + lambda * JSD. Finite, nonnegative.
   k3_jsd_lambda: 1.0
 

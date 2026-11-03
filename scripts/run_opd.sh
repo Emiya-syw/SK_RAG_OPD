@@ -179,6 +179,10 @@ ENTROPY_KL_COVERAGE_DEFICIT_SCALE="${ENTROPY_KL_COVERAGE_DEFICIT_SCALE:-0.3}"
 ENTROPY_KL_TEACHER_MASS_FLOOR="${ENTROPY_KL_TEACHER_MASS_FLOOR:-0.95}"
 # entropy_jsd 及 k3_entropy_jsd 的 JSD 项：默认除以 beta*(1-beta)。
 ENTROPY_JSD_NORMALIZE="${ENTROPY_JSD_NORMALIZE:-true}"
+# EJSD 组件消融：依次令 E=1、D=1、rho=1；默认均启用完整公式。
+ENTROPY_JSD_USE_ENTROPY_MODULATION="${ENTROPY_JSD_USE_ENTROPY_MODULATION:-true}"
+ENTROPY_JSD_USE_COVERAGE_MODULATION="${ENTROPY_JSD_USE_COVERAGE_MODULATION:-true}"
+ENTROPY_JSD_USE_MASS_GATE="${ENTROPY_JSD_USE_MASS_GATE:-true}"
 # 混合模式：K3 + lambda * JSD；k3_jsd 为固定 beta，k3_entropy_jsd 为熵门控。
 # 有限非负数；默认 1，设为 0 可关闭辅助项；纯蒸馏时同样生效。
 K3_JSD_LAMBDA="${K3_JSD_LAMBDA:-1.0}"
@@ -606,6 +610,9 @@ train_status=0
   "distillation.distillation_loss.entropy_kl_coverage_deficit_scale=${ENTROPY_KL_COVERAGE_DEFICIT_SCALE}" \
   "distillation.distillation_loss.entropy_kl_teacher_mass_floor=${ENTROPY_KL_TEACHER_MASS_FLOOR}" \
   "distillation.distillation_loss.entropy_jsd_normalize=${ENTROPY_JSD_NORMALIZE}" \
+  "distillation.distillation_loss.entropy_jsd_use_entropy_modulation=${ENTROPY_JSD_USE_ENTROPY_MODULATION}" \
+  "distillation.distillation_loss.entropy_jsd_use_coverage_modulation=${ENTROPY_JSD_USE_COVERAGE_MODULATION}" \
+  "distillation.distillation_loss.entropy_jsd_use_mass_gate=${ENTROPY_JSD_USE_MASS_GATE}" \
   "distillation.distillation_loss.k3_jsd_lambda=${K3_JSD_LAMBDA}" \
   "distillation.distillation_loss.distillation_loss_coef=${DISTILLATION_LOSS_COEF}" \
   "distillation.distillation_loss.use_task_rewards=${USE_TASK_REWARDS}" \

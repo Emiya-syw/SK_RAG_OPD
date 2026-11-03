@@ -114,6 +114,26 @@ class DistributionLossTests(unittest.TestCase):
         torch.testing.assert_close(out['entropy_gate_confidence'], confidence)
         torch.testing.assert_close(out['jsd_beta'], expected_beta)
 
+    def test_entropy_jsd_component_ablations_match_documented_alpha(self):
+        teacher = torch.tensor([[.6, .375]], dtype=torch.double).log()
+        student = torch.tensor([[.2, .1]], dtype=torch.double).log()
+        full = distribution_loss(student, teacher, config('entropy_jsd', topk=2))
+        entropy = torch.sigmoid(full['teacher_entropy'] - .8)
+        coverage = full['teacher_topk_coverage']
+        deficit = ((1 - coverage) / .3).clamp(0, 1)
+        rho = full['entropy_gate_confidence']
+        variants = (
+            ({}, .5 + rho * (entropy * deficit - .5)),
+            ({'entropy_jsd_use_entropy_modulation': False}, .5 + rho * (deficit - .5)),
+            ({'entropy_jsd_use_coverage_modulation': False}, .5 + rho * (entropy - .5)),
+            ({'entropy_jsd_use_mass_gate': False}, entropy * deficit),
+        )
+        for settings, expected_alpha in variants:
+            with self.subTest(settings=settings):
+                out = distribution_loss(student, teacher, config('entropy_jsd', topk=2, **settings))
+                torch.testing.assert_close(1 - out['jsd_beta'], expected_alpha)
+                self.assertTrue(torch.isfinite(out['distillation_losses']).all())
+
     def test_jsd_tail_bucket_penalizes_mass_outside_teacher_topk(self):
         teacher = torch.tensor([[[.9, .1]]]).log()
         ids = torch.tensor([[[0, 1]]])
@@ -473,11 +493,17 @@ class DistributionLossTests(unittest.TestCase):
                 'distillation.distillation_loss.entropy_kl_coverage_deficit_scale=0.3',
                 'distillation.distillation_loss.entropy_kl_teacher_mass_floor=0.95',
                 'distillation.distillation_loss.entropy_jsd_normalize=true',
+                'distillation.distillation_loss.entropy_jsd_use_entropy_modulation=false',
+                'distillation.distillation_loss.entropy_jsd_use_coverage_modulation=false',
+                'distillation.distillation_loss.entropy_jsd_use_mass_gate=false',
             ])
         self.assertEqual(cfg.distillation.distillation_loss.entropy_gate_temperature, .7)
         self.assertEqual(cfg.distillation.distillation_loss.entropy_gate_tail_cutoff, .2)
         self.assertEqual(cfg.distillation.distillation_loss.entropy_kl_teacher_mass_floor, .95)
         self.assertTrue(cfg.distillation.distillation_loss.entropy_jsd_normalize)
+        self.assertFalse(cfg.distillation.distillation_loss.entropy_jsd_use_entropy_modulation)
+        self.assertFalse(cfg.distillation.distillation_loss.entropy_jsd_use_coverage_modulation)
+        self.assertFalse(cfg.distillation.distillation_loss.entropy_jsd_use_mass_gate)
 
 
 if __name__ == '__main__':

@@ -94,6 +94,9 @@ class DistillationLossConfig(BaseConfig):
     entropy_kl_coverage_deficit_scale: float = 0.3
     entropy_kl_teacher_mass_floor: float = 0.95
     entropy_jsd_normalize: bool = False
+    entropy_jsd_use_entropy_modulation: bool = True
+    entropy_jsd_use_coverage_modulation: bool = True
+    entropy_jsd_use_mass_gate: bool = True
     # K3 + lambda * JSD; applies even in pure distillation without task rewards.
     k3_jsd_lambda: float = 1.0
 

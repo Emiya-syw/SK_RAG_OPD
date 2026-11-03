@@ -146,13 +146,19 @@ def distribution_loss(student_log_probs, teacher_log_probs, config, student_gate
         coverage = torch.minimum(teacher_prob, student_prob).sum(-1) / teacher_mass.clamp_min(1e-12)
         coverage = coverage.clamp(0, 1).detach()
         deficit = ((1 - coverage) / config.entropy_kl_coverage_deficit_scale).clamp(0, 1)
+        if not config.entropy_jsd_use_coverage_modulation:
+            deficit = torch.ones_like(deficit)
         entropy_signal = torch.sigmoid(
             (ht - config.entropy_kl_teacher_entropy_threshold) / config.entropy_gate_temperature
         )
+        if not config.entropy_jsd_use_entropy_modulation:
+            entropy_signal = torch.ones_like(entropy_signal)
         teacher_mass_confidence = (
             (teacher_mass - config.entropy_kl_teacher_mass_floor) /
             (1 - config.entropy_kl_teacher_mass_floor)
         ).clamp(0, 1).detach()
+        if not config.entropy_jsd_use_mass_gate:
+            teacher_mass_confidence = torch.ones_like(teacher_mass_confidence)
         raw_alpha = entropy_signal * deficit
         # Unreliable top-k mass removes the adaptive tilt, not the JSD supervision.
         alpha = (0.5 + teacher_mass_confidence * (raw_alpha - 0.5)).detach()
